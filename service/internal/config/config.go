@@ -214,6 +214,7 @@ type Config struct {
 	Dashboards                         []*DashboardComponent      `koanf:"dashboards"`
 	sourceFiles                        []string
 	AuthLocalUsers                     AuthLocalUsersConfig `koanf:"authLocalUsers"`
+	ServiceMonitor                     ServiceMonitorConfig `koanf:"serviceMonitor"`
 	LogHistoryPageSize                 int64                `koanf:"logHistoryPageSize"`
 	LogDebugOptions                    LogDebugOptions      `koanf:"logDebugOptions"`
 	DefaultPermissions                 PermissionsList      `koanf:"defaultPermissions"`
@@ -360,4 +361,12 @@ func DefaultConfigWithBasePort(basePort int) *Config {
 	config.DefaultPolicy.ShowVersionNumber = true
 
 	return &config
+}
+
+type ServiceMonitorConfig struct {
+	Command         []string `koanf:"command"`
+	ACLs            []string `koanf:"acls"`
+	ServiceIDs      []string `koanf:"serviceIds"`
+	IntervalSeconds int      `koanf:"intervalSeconds"`
+	Enabled         bool     `koanf:"enabled"`
 }

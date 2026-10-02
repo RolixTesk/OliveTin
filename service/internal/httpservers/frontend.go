@@ -21,6 +21,7 @@ import (
 	"github.com/OliveTin/OliveTin/internal/auth/otoauth2"
 	config "github.com/OliveTin/OliveTin/internal/config"
 	"github.com/OliveTin/OliveTin/internal/executor"
+	"github.com/OliveTin/OliveTin/internal/servicemonitor"
 	"github.com/OliveTin/OliveTin/internal/webhooks"
 	log "github.com/sirupsen/logrus"
 )
@@ -101,6 +102,9 @@ func StartFrontendMux(cfg *config.Config, ex *executor.Executor) {
 	go StartPrometheus(cfg)
 
 	mux := http.NewServeMux()
+	if cfg.ServiceMonitor.Enabled {
+		mux.Handle("/service-monitor/", servicemonitor.NewHandler(cfg))
+	}
 
 	apiPath, apiHandler := api.GetNewHandler(ex)
 

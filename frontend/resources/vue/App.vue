@@ -409,6 +409,10 @@ function renderNavigation () {
 function addSystemNavLinks () {
   const systemLinks = []
 
+  if (showDiagnostics.value && !loginRequired.value && window.initResponse?.additionalLinks?.some(link => link.url === '/services')) {
+    systemLinks.push({ routeName: 'Services', title: '服务监控' })
+  }
+
   systemLinks.push({
     routeName: 'Entities',
     title: t('nav.entities')

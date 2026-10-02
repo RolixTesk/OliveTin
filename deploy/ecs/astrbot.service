@@ -1,0 +1,23 @@
+[Unit]
+Description=AstrBot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=rolix
+Group=rolix
+WorkingDirectory=/home/rolix
+Environment=HOME=/home/rolix
+Environment=PATH=/home/rolix/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/rolix/.local/bin/astrbot run
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGINT
+TimeoutStopSec=45s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

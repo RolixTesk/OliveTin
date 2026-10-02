@@ -1,0 +1,113 @@
+#!/usr/bin/python3
+"""Certbot DNS-01 hooks using the existing authorized Alibaba Cloud MCP account."""
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import subprocess
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+DOMAIN = 'olivetin.rolixtesk.top'
+ZONE = 'rolixtesk.top'
+RR = '_acme-challenge.olivetin'
+CREDENTIALS = Path(os.environ.get('OLIVETIN_DNS_CREDENTIALS', '/etc/letsencrypt/olivetin-dns-credentials.json'))
+
+
+def request(url, data, headers):
+    req = urllib.request.Request(url, data=json.dumps(data).encode(), headers=headers)
+    with urllib.request.urlopen(req, timeout=30) as response:
+        if 'text/event-stream' not in response.headers.get('Content-Type', ''):
+            return json.load(response), response.headers.get('Mcp-Session-Id', '')
+        for line in response:
+            if line.startswith(b'data:'):
+                result = json.loads(line[5:])
+                if result.get('id') == data.get('id'):
+                    return result, response.headers.get('Mcp-Session-Id', '')
+    raise RuntimeError('Missing cloud API response')
+
+
+def refresh_credentials():
+    data = json.loads(CREDENTIALS.read_text())
+    body = urllib.parse.urlencode({'grant_type': 'refresh_token',
+        'refresh_token': data['refresh_token'], 'client_id': data['client_id'],
+        'client_secret': data['client_secret']}).encode()
+    req = urllib.request.Request('https://oauth.aliyun.com/v1/token', data=body,
+                                 headers={'Content-Type': 'application/x-www-form-urlencoded'})
+    with urllib.request.urlopen(req, timeout=30) as response:
+        tokens = json.load(response)
+    data.update({k: tokens[k] for k in ('access_token', 'refresh_token') if k in tokens})
+    temp = CREDENTIALS.with_suffix('.tmp')
+    descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, 'w') as file:
+        json.dump(data, file)
+    temp.replace(CREDENTIALS)
+    return data
+
+
+def call_cli(data, command):
+    headers = {'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream',
+               'Authorization': 'Bearer ' + data['access_token']}
+    init = {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {
+        'protocolVersion': '2025-03-26', 'capabilities': {},
+        'clientInfo': {'name': 'olivetin-certbot', 'version': '1'}}}
+    _, session = request(data['server_url'], init, headers)
+    if session:
+        headers['Mcp-Session-Id'] = session
+    result, _ = request(data['server_url'], {'jsonrpc': '2.0', 'id': 2,
+        'method': 'tools/call', 'params': {'name': 'AlibabaCloud___CallCLI',
+        'arguments': {'command': command}}}, headers)
+    result = result.get('result', {})
+    if result.get('isError'):
+        raise RuntimeError('Cloud DNS operation rejected')
+    text = '\n'.join(item['text'] for item in result.get('content', []) if item.get('type') == 'text')
+    return json.loads(text)
+
+
+def wait_dns(validation):
+    for _ in range(36):
+        result = subprocess.run(['/usr/bin/dig', '@dns17.hichina.com', '+short', 'TXT', RR + '.' + ZONE],
+                                capture_output=True, text=True, timeout=5)
+        if validation in result.stdout:
+            return
+        time.sleep(5)
+    raise RuntimeError('DNS validation record did not propagate')
+
+
+def main(mode):
+    if mode != 'probe' and os.environ.get('CERTBOT_DOMAIN') != DOMAIN:
+        raise ValueError('Domain not allowed')
+    data = refresh_credentials()
+    if mode == 'probe':
+        result = call_cli(data, f'aliyun alidns DescribeDomainRecords --DomainName {ZONE} --RRKeyWord olivetin --TypeKeyWord A')
+        print('Cloud DNS access verified:', result.get('TotalCount', 0))
+    elif mode == 'auth':
+        validation = os.environ['CERTBOT_VALIDATION']
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', validation):
+            raise ValueError('Invalid validation value')
+        result = call_cli(data, f'aliyun alidns AddDomainRecord --DomainName {ZONE} --RR {RR} --Type TXT --Value {shlex.quote(validation)} --TTL 600')
+        record_id = result['RecordId']
+        # Return the record id to Certbot's cleanup hook even if propagation later fails.
+        print(record_id, flush=True)
+        wait_dns(validation)
+    elif mode == 'cleanup':
+        record_id = os.environ.get('CERTBOT_AUTH_OUTPUT', '').strip()
+        if not re.fullmatch(r'[0-9]+', record_id):
+            raise ValueError('Invalid owned DNS record id')
+        record = call_cli(data, f'aliyun alidns DescribeDomainRecordInfo --RecordId {record_id}')
+        if record.get('DomainName') != ZONE or record.get('RR') != RR or record.get('Type') != 'TXT':
+            raise ValueError('Refusing to remove an unrelated record')
+        call_cli(data, f'aliyun alidns DeleteDomainRecord --RecordId {record_id}')
+    else:
+        raise ValueError('Unknown hook mode')
+
+
+if __name__ == '__main__':
+    try:
+        main(sys.argv[1])
+    except Exception:
+        print('Cloud DNS certificate hook failed; verify the root-only OAuth credential and DNS access.', file=sys.stderr)
+        sys.exit(1)

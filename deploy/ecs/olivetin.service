@@ -1,0 +1,17 @@
+[Unit]
+Description=OliveTin Rolix service management fork
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=olivetin
+Group=olivetin
+WorkingDirectory=/var/lib/olivetin
+ExecStart=/opt/olivetin/current/OliveTin -configdir /etc/OliveTin
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

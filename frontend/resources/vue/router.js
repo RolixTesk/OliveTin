@@ -6,6 +6,12 @@ import { Wrench01Icon, LeftToRightListDashIcon, CellsIcon, DashboardSquare01Icon
 
 const routes = [
   {
+    path: '/services',
+    name: 'Services',
+    component: () => import('./views/ServicesView.vue'),
+    meta: { title: 'Service Monitoring', icon: CellsIcon, requiresAuth: true }
+  },
+  {
     path: '/',
     name: 'Actions',
     component: Dashboard,

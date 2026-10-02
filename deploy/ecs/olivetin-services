@@ -1,0 +1,206 @@
+#!/usr/bin/python3
+"""Fixed ECS service operations. Install root-owned; called through restricted sudo."""
+import datetime
+import fcntl
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+SERVICES = {
+    'astrbot': ('AstrBot', 'unit', 'astrbot.service', [6185, 6199]),
+    'napcat': ('NapCat / QQ', 'container', 'napcat', [6099]),
+    'couchdb': ('Obsidian CouchDB', 'container', 'obsidian-couchdb', [5984]),
+    'stalwart': ('Stalwart Mail', 'container', 'stalwart', [25, 587, 465, 993]),
+    'roundcube': ('Roundcube Webmail', 'container', 'roundcube', []),
+    'hoyopanel': ('HoyoPanel', 'unit', 'hoyopanel.service', []),
+    'clash': ('Clash / Mihomo', 'process', 'mihomo', [9090]),
+    'nginx': ('Nginx', 'unit', 'nginx.service', [80, 443]),
+    'docker': ('Docker', 'unit', 'docker.service', []),
+    'wireguard': ('WireGuard', 'unit', 'wg-quick@wg0.service', []),
+}
+URLS = {s: f'https://{host}.rolixtesk.top/' for s, host in {
+    'astrbot': 'astrbot', 'napcat': 'napcat', 'couchdb': 'obsidian',
+    'stalwart': 'mail', 'roundcube': 'webmail', 'clash': 'clash',
+}.items()}
+URLS['hoyopanel'] = 'https://rolixtesk.top/hoyopanel/'
+MUTABLE = {'astrbot', 'napcat', 'couchdb', 'stalwart', 'roundcube', 'hoyopanel', 'clash'}
+ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'HOME': '/root'}
+ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
+SECRET = re.compile(r'''(?i)((?:["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|authorization|cookie)["']?)\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;&]+)''')
+
+
+def run(args, check=True, timeout=8):
+    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            timeout=timeout, env=ENV, text=True, errors='replace')
+    if check and result.returncode:
+        raise RuntimeError('Service command failed')
+    return result.stdout
+
+
+def sanitize(text):
+    text = ANSI.sub('', text)
+    text = re.sub(r'(?is)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----', '[REDACTED PRIVATE KEY]', text)
+    text = SECRET.sub(r'\1[REDACTED]', text)
+    text = re.sub(r'(?i)\bBearer\s+\S+', 'Bearer [REDACTED]', text)
+    text = re.sub(r'(https?://)[^/\s:@]+:[^/\s@]+@', r'\1[REDACTED]@', text)
+    text = re.sub(r'(https?://[^\s?]+)\?[^\s]+', r'\1?[REDACTED QUERY]', text)
+    return text[-160 * 1024:]
+
+
+def qq_login(text):
+    status = 'unknown'
+    event_at = ''
+    for line in ANSI.sub('', text).splitlines():
+        if re.search(r'登录成功|login success|logged in successfully', line, re.I):
+            status = 'logged-in'
+        elif re.search(r'退出登录|被迫下线|登录失败|二维码|请.*扫码|QR.?code|login failed', line, re.I):
+            status = 'login-required'
+        else:
+            continue
+        event_at = line.split(' ', 1)[0]
+    return {'QQ 登录': status, '登录事件时间': event_at or 'unknown'}
+
+
+def listening(port):
+    # Inspect listeners rather than opening protocol sessions (mail can ban port scanners).
+    for filename in ('/proc/net/tcp', '/proc/net/tcp6'):
+        for line in Path(filename).read_text().splitlines()[1:]:
+            fields = line.split()
+            if fields[3] == '0A' and int(fields[1].rsplit(':', 1)[1], 16) == port:
+                return True
+    return False
+
+
+def container_info(target):
+    # Only the selected runtime fields are returned; configuration/environment are never serialized.
+    return json.loads(run(['/usr/bin/docker', 'inspect', '--format',
+        '{"state":{{json .State.Status}},"restart":{{json .HostConfig.RestartPolicy.Name}},"started":{{json .State.StartedAt}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"unconfigured"{{end}}}', target]))
+
+
+def unit_info(target):
+    output = run(['/usr/bin/systemctl', 'show', target, '--no-pager',
+                  '--property=ActiveState,SubState,UnitFileState,Result'], check=False)
+    fields = dict(line.split('=', 1) for line in output.splitlines() if '=' in line)
+    return {'state': fields.get('ActiveState', 'unknown'),
+            'enabled': fields.get('UnitFileState', 'unknown'),
+            'health': fields.get('Result', 'unknown'),
+            'details': {'子状态': fields.get('SubState', 'unknown')}}
+
+
+def napcat_logs(started):
+    return run(['/usr/bin/docker', 'logs', '--timestamps', '--since', started,
+                '--tail', '500', 'napcat'])
+
+
+def service_state(service_id):
+    name, kind, target, ports = SERVICES[service_id]
+    item = {'id': service_id, 'name': name, 'kind': kind, 'details': {},
+            'actions': [f'{service_id}-{verb}' for verb in ('start', 'stop', 'restart')] if service_id in MUTABLE else [],
+            'url': URLS.get(service_id, '')}
+    if kind == 'container':
+        data = container_info(target)
+        item.update(state=data['state'], enabled=data['restart'], health=data['health'])
+        if service_id == 'napcat':
+            item['details'].update(qq_login(napcat_logs(data['started'])))
+            item['note'] = '登录事件来自本次容器启动后的最近日志；unknown 不代表离线。二维码展示将在后续页面改造加入。'
+    elif kind == 'unit':
+        item.update(unit_info(target))
+    else:
+        item.update(state='running' if run(['/usr/bin/pgrep', '-x', target], check=False).strip() else 'stopped',
+                    enabled='未配置已确认的自启动', health='unconfigured')
+    if ports:
+        item['details']['本机端口'] = ', '.join(f'{port}: {"监听" if listening(port) else "未监听"}' for port in ports)
+    if service_id == 'nginx':
+        item['actions'] = ['nginx-check', 'nginx-reload']
+    if service_id == 'wireguard':
+        item['details'].update(wireguard_state())
+        item['note'] = '隧道停止会切断面板，修改通过 SSH 完成。'
+    return item
+
+
+def wireguard_state():
+    allowed = run(['/usr/bin/wg', 'show', 'wg0', 'allowed-ips'], check=False)
+    handshakes = dict(line.split('\t', 1) for line in run(['/usr/bin/wg', 'show', 'wg0', 'latest-handshakes'], check=False).splitlines() if '\t' in line)
+    now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    details = {}
+    for line in allowed.splitlines():
+        peer, ip = line.split('\t', 1)
+        value = int(handshakes.get(peer, '0'))
+        details[ip] = f'{int(now - value)} 秒前握手' if value else '尚未握手'
+    return details
+
+
+def snapshot():
+    services = []
+    for service_id in SERVICES:
+        try:
+            services.append(service_state(service_id))
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+            services.append({'id': service_id, 'name': SERVICES[service_id][0],
+                             'state': 'unknown', 'enabled': 'unknown', 'health': 'collection-error',
+                             'details': {}, 'actions': []})
+    print(json.dumps({'services': services}, ensure_ascii=False))
+
+
+def logs(service_id):
+    _, kind, target, _ = SERVICES[service_id]
+    if service_id == 'nginx':
+        output = run(['/usr/bin/tail', '-n', '100', '/var/log/nginx/access.log', '/var/log/nginx/error.log'])
+    elif kind == 'container':
+        output = run(['/usr/bin/docker', 'logs', '--timestamps', '--tail', '200', target])
+    elif kind == 'unit':
+        output = run(['/usr/bin/journalctl', '--unit', target, '--lines', '200', '--no-pager', '--output=short-iso'])
+    else:
+        # Existing Clash service_start implementation writes here; confirmed before installation.
+        path = Path('/home/rolix/clashctl/resources/mihomo.log')
+        if not path.exists():
+            raise RuntimeError('Clash log path is not configured')
+        output = run(['/usr/sbin/runuser', '-u', 'rolix', '--', '/usr/bin/tail', '-n', '200', str(path)])
+    print(sanitize(output))
+
+
+def clash(verb):
+    commands = {'start': 'clashon --service-only', 'stop': 'clashoff --service-only',
+                'restart': 'clashoff --service-only && clashon --service-only'}
+    return run(['/usr/sbin/runuser', '-u', 'rolix', '--', '/usr/bin/env', 'HOME=/home/rolix',
+                '/bin/bash', '-ic', commands[verb]], timeout=35)
+
+
+def mutate(verb, service_id):
+    if service_id == 'nginx' and verb in ('check', 'reload'):
+        output = run(['/usr/sbin/nginx', '-t'])
+        if verb == 'reload':
+            output += run(['/usr/bin/systemctl', 'reload', 'nginx.service'])
+        return output
+    if service_id not in MUTABLE or verb not in ('start', 'stop', 'restart'):
+        raise ValueError('Operation not allowed')
+    if service_id == 'clash':
+        return clash(verb)
+    _, kind, target, _ = SERVICES[service_id]
+    args = ['/usr/bin/docker', verb, target] if kind == 'container' else ['/usr/bin/systemctl', verb, target]
+    return run(args, timeout=55)
+
+
+def main(args):
+    if args == ['snapshot']:
+        snapshot()
+        return
+    if len(args) != 2 or args[1] not in SERVICES:
+        raise ValueError('Unknown operation or service')
+    verb, service_id = args
+    if verb == 'logs':
+        logs(service_id)
+        return
+    with open(f'/run/lock/olivetin-{service_id}.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        print(sanitize(mutate(verb, service_id)) or 'Operation completed')
+
+
+if __name__ == '__main__':
+    try:
+        main(sys.argv[1:])
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+        print('Service operation failed; inspect the selected service through SSH.', file=sys.stderr)
+        sys.exit(1)

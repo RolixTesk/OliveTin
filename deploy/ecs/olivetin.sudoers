@@ -1,0 +1,1 @@
+olivetin ALL=(root) NOPASSWD: /usr/local/libexec/olivetin-services

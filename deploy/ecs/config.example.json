@@ -1,0 +1,145 @@
+{
+  "listenAddressSingleHTTPFrontend": "127.0.0.1:1337",
+  "webUIDir": "/opt/olivetin/current/webui",
+  "pageTitle": "Rolix 服务管理",
+  "logLevel": "INFO",
+  "checkForUpdates": false,
+  "showNewVersions": false,
+  "authRequireGuestsToLogin": true,
+  "security": {
+    "forceSecureCookies": true
+  },
+  "defaultPermissions": {
+    "view": false,
+    "exec": false,
+    "logs": false,
+    "kill": false
+  },
+  "defaultPolicy": {
+    "showDiagnostics": false,
+    "showLogList": false
+  },
+  "accessControlLists": [
+    {
+      "name": "admins",
+      "matchUsergroups": [
+        "admins"
+      ],
+      "addToEveryAction": true,
+      "permissions": {
+        "view": true,
+        "exec": true,
+        "logs": true,
+        "kill": false
+      },
+      "policy": {
+        "showDiagnostics": true,
+        "showLogList": true
+      }
+    }
+  ],
+  "additionalNavigationLinks": [
+    {
+      "title": "服务监控",
+      "url": "/services",
+      "target": "_self"
+    }
+  ],
+  "authLocalUsers": {
+    "enabled": true,
+    "users": [
+      {
+        "username": "admin",
+        "usergroup": "admins",
+        "password": "REPLACE_WITH_ARGON2ID_HASH"
+      }
+    ]
+  },
+  "serviceMonitor": {
+    "enabled": true,
+    "command": [
+      "/usr/bin/sudo",
+      "-n",
+      "/usr/local/libexec/olivetin-services"
+    ],
+    "acls": [
+      "admins"
+    ],
+    "serviceIds": [
+      "astrbot",
+      "napcat",
+      "couchdb",
+      "stalwart",
+      "roundcube",
+      "hoyopanel",
+      "clash",
+      "nginx",
+      "docker",
+      "wireguard"
+    ],
+    "intervalSeconds": 10
+  },
+  "actionGroups": {
+    "astrbot": {
+      "maxConcurrent": 1,
+      "queueSize": 0
+    },
+    "napcat": {
+      "maxConcurrent": 1,
+      "queueSize": 0
+    },
+    "couchdb": {
+      "maxConcurrent": 1,
+      "queueSize": 0
+    },
+    "stalwart": {
+      "maxConcurrent": 1,
+      "queueSize": 0
+    },
+    "roundcube": {
+      "maxConcurrent": 1,
+      "queueSize": 0
+    },
+    "hoyopanel": {
+      "maxConcurrent": 1,
+      "queueSize": 0
+    },
+    "clash": {
+      "maxConcurrent": 1,
+      "queueSize": 0
+    },
+    "nginx": {
+      "maxConcurrent": 1,
+      "queueSize": 0
+    }
+  },
+  "saveLogs": {
+    "resultsDirectory": "/var/lib/olivetin/action-results",
+    "outputDirectory": "/var/lib/olivetin/action-output"
+  },
+  "actions": [
+    {"id": "astrbot-start", "title": "astrbot · start", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "start", "astrbot"], "groups": ["astrbot"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog"},
+    {"id": "astrbot-stop", "title": "astrbot · stop", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "stop", "astrbot"], "groups": ["astrbot"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 stop astrbot？这可能中断对应服务。"}]},
+    {"id": "astrbot-restart", "title": "astrbot · restart", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "restart", "astrbot"], "groups": ["astrbot"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 restart astrbot？这可能中断对应服务。"}]},
+    {"id": "napcat-start", "title": "napcat · start", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "start", "napcat"], "groups": ["napcat"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog"},
+    {"id": "napcat-stop", "title": "napcat · stop", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "stop", "napcat"], "groups": ["napcat"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 stop napcat？这可能中断对应服务。"}]},
+    {"id": "napcat-restart", "title": "napcat · restart", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "restart", "napcat"], "groups": ["napcat"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 restart napcat？这可能中断对应服务。"}]},
+    {"id": "couchdb-start", "title": "couchdb · start", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "start", "couchdb"], "groups": ["couchdb"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog"},
+    {"id": "couchdb-stop", "title": "couchdb · stop", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "stop", "couchdb"], "groups": ["couchdb"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 stop couchdb？这可能中断对应服务。"}]},
+    {"id": "couchdb-restart", "title": "couchdb · restart", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "restart", "couchdb"], "groups": ["couchdb"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 restart couchdb？这可能中断对应服务。"}]},
+    {"id": "stalwart-start", "title": "stalwart · start", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "start", "stalwart"], "groups": ["stalwart"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog"},
+    {"id": "stalwart-stop", "title": "stalwart · stop", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "stop", "stalwart"], "groups": ["stalwart"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 stop stalwart？这可能中断对应服务。"}]},
+    {"id": "stalwart-restart", "title": "stalwart · restart", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "restart", "stalwart"], "groups": ["stalwart"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 restart stalwart？这可能中断对应服务。"}]},
+    {"id": "roundcube-start", "title": "roundcube · start", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "start", "roundcube"], "groups": ["roundcube"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog"},
+    {"id": "roundcube-stop", "title": "roundcube · stop", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "stop", "roundcube"], "groups": ["roundcube"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 stop roundcube？这可能中断对应服务。"}]},
+    {"id": "roundcube-restart", "title": "roundcube · restart", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "restart", "roundcube"], "groups": ["roundcube"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 restart roundcube？这可能中断对应服务。"}]},
+    {"id": "hoyopanel-start", "title": "hoyopanel · start", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "start", "hoyopanel"], "groups": ["hoyopanel"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog"},
+    {"id": "hoyopanel-stop", "title": "hoyopanel · stop", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "stop", "hoyopanel"], "groups": ["hoyopanel"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 stop hoyopanel？这可能中断对应服务。"}]},
+    {"id": "hoyopanel-restart", "title": "hoyopanel · restart", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "restart", "hoyopanel"], "groups": ["hoyopanel"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 restart hoyopanel？这可能中断对应服务。"}]},
+    {"id": "clash-start", "title": "clash · start", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "start", "clash"], "groups": ["clash"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog"},
+    {"id": "clash-stop", "title": "clash · stop", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "stop", "clash"], "groups": ["clash"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 stop clash？这可能中断对应服务。"}]},
+    {"id": "clash-restart", "title": "clash · restart", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "restart", "clash"], "groups": ["clash"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 restart clash？这可能中断对应服务。"}]},
+    {"id": "nginx-check", "title": "nginx · check", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "check", "nginx"], "groups": ["nginx"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog"},
+    {"id": "nginx-reload", "title": "nginx · reload", "exec": ["/usr/bin/sudo", "-n", "/usr/local/libexec/olivetin-services", "reload", "nginx"], "groups": ["nginx"], "timeout": 60, "maxConcurrent": 1, "popupOnStart": "execution-dialog", "arguments": [{"name": "confirm", "type": "confirmation", "title": "确认 reload nginx？这可能中断对应服务。"}]}
+  ]
+}

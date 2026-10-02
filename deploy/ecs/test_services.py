@@ -22,6 +22,12 @@ class ServiceBoundaryTests(unittest.TestCase):
         for forbidden in ['test-secret', 'abc', 'xyz', 'some-secret', 'user:pass', 'k=secret', '\x1b']:
             self.assertNotIn(forbidden, cleaned)
 
+    def test_authorization_and_cookie_headers(self):
+        for text in ['Authorization: Bearer test-secret', 'Authorization: Basic dXNlcjpzZWNyZXQ=', 'Cookie: session=test-secret; other=another-secret']:
+            cleaned = services.sanitize(text)
+            for value in ['test-secret', 'dXNlcjpzZWNyZXQ=', 'another-secret']:
+                self.assertNotIn(value, cleaned)
+
     def test_fixed_service_operations(self):
         for args in [['restart', 'docker'], ['stop', 'wireguard'], ['logs', '../../etc/shadow'], ['exec', 'astrbot']]:
             with self.assertRaises(ValueError):

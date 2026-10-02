@@ -42,8 +42,9 @@ def run(args, check=True, timeout=8):
 def sanitize(text):
     text = ANSI.sub('', text)
     text = re.sub(r'(?is)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----', '[REDACTED PRIVATE KEY]', text)
+    text = re.sub(r'(?i)\b(Bearer|Basic)\s+\S+', r'\1 [REDACTED]', text)
+    text = re.sub(r'(?im)(\b(?:authorization|cookie|set-cookie)\s*[:=]\s*)[^\r\n]+', r'\1[REDACTED]', text)
     text = SECRET.sub(r'\1[REDACTED]', text)
-    text = re.sub(r'(?i)\bBearer\s+\S+', 'Bearer [REDACTED]', text)
     text = re.sub(r'(https?://)[^/\s:@]+:[^/\s@]+@', r'\1[REDACTED]@', text)
     text = re.sub(r'(https?://[^\s?]+)\?[^\s]+', r'\1?[REDACTED QUERY]', text)
     return text[-160 * 1024:]

@@ -33,6 +33,11 @@ class ServiceBoundaryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 services.main(args)
 
+    def test_unicode_logs_fit_byte_limit(self):
+        cleaned = services.sanitize('日志' * 100000)
+        self.assertLessEqual(len(cleaned.encode('utf-8')), 160 * 1024)
+        self.assertTrue(cleaned.endswith('日志'))
+
 
 if __name__ == '__main__':
     unittest.main()

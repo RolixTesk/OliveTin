@@ -47,7 +47,7 @@ def sanitize(text):
     text = SECRET.sub(r'\1[REDACTED]', text)
     text = re.sub(r'(https?://)[^/\s:@]+:[^/\s@]+@', r'\1[REDACTED]@', text)
     text = re.sub(r'(https?://[^\s?]+)\?[^\s]+', r'\1?[REDACTED QUERY]', text)
-    return text[-160 * 1024:]
+    return text.encode('utf-8')[-160 * 1024:].decode('utf-8', errors='ignore')
 
 
 def qq_login(text):
@@ -152,7 +152,8 @@ def logs(service_id):
     elif kind == 'container':
         output = run(['/usr/bin/docker', 'logs', '--timestamps', '--tail', '200', target])
     elif kind == 'unit':
-        output = run(['/usr/bin/journalctl', '--unit', target, '--lines', '200', '--no-pager', '--output=short-iso'])
+        output = run(['/usr/bin/journalctl', '--unit', target, '--since=-1day',
+                      '--lines', '200', '--no-pager', '--output=short-iso'])
     else:
         # Existing Clash service_start implementation writes here; confirmed before installation.
         path = Path('/home/rolix/clashctl/resources/mihomo.log')

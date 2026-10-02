@@ -80,7 +80,7 @@
         关闭
       </button>
     </template>
-    <p>最近最多 200 行，敏感字段已过滤。此处为服务日志；动作执行记录仍在“Logs”页面。</p>
+    <p>最近最多 200 行；systemd 日志限最近 24 小时。常见敏感字段已过滤，动作执行记录在“Logs”页面。</p>
     <p
       v-if="logsError"
       role="alert"

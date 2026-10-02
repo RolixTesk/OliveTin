@@ -8,4 +8,6 @@ Business log targets come from an explicit configured list. Unknown targets and 
 
 The service page displays runtime state, boot policy, health, collection time and service-specific details. A running container must not imply successful application login. Unknown or stale business state must be presented as unknown or stale.
 
+After a successful login, an authenticated user can navigate to the service page and reload it without being redirected to login. Guests and unavailable session identities must still be redirected to login. Navigation uses the current server-provided identity, including after login or logout.
+
 Service mutation buttons use the existing authorized action execution mechanism, including confirmations, concurrency limits and execution records. Monitoring does not expose arbitrary command execution, configuration editing or data deletion.

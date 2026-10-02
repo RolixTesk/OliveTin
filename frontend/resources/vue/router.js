@@ -181,7 +181,8 @@ router.beforeEach((to) => {
     return '/login'
   }
 
-  const isAuthenticated = window.isAuthenticated ?? false
+  const authenticatedUser = window.initResponse?.authenticatedUser
+  const isAuthenticated = !!authenticatedUser && authenticatedUser !== 'guest'
 
   if (to.meta.requiresAuth && !isAuthenticated) {
     return '/login'

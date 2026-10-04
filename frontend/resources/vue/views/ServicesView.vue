@@ -213,7 +213,7 @@
   </div>
 </template>
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import Section from 'picocrank/vue/components/Section.vue'
 import ActionButton from '../ActionButton.vue'
 const services = ref([])
@@ -271,6 +271,7 @@ function actionsFor (service) { return (service.actions || []).map(id => actions
 async function openLogs (id) {
   const request = ++logRequest
   selectedService.value = id
+  nextTick(() => document.querySelector('.business-log-section')?.scrollIntoView({ block: 'start' }))
   logs.value = ''; logsError.value = ''; logsLoading.value = true
   try {
     const output = await (await read(`/service-monitor/logs/${encodeURIComponent(id)}`)).text()
@@ -280,7 +281,11 @@ async function openLogs (id) {
   } finally { if (request === logRequest) logsLoading.value = false }
 }
 function closeLogin () { clearTimeout(qrExpiryTimer); showLogin.value = false; loginData.value = null; loginRequest++; loginLoading.value = false }
-function openLogin () { showLogin.value = true; refreshLogin() }
+function openLogin () {
+  showLogin.value = true
+  nextTick(() => document.querySelector('.qq-login-section')?.scrollIntoView({ block: 'start' }))
+  refreshLogin()
+}
 async function refreshLogin () {
   if (loginLoading.value || !showLogin.value || document.hidden) return
   const request = ++loginRequest

@@ -14,7 +14,7 @@
       class="services-overview"
       role="status"
     >
-      <span><strong>{{ services.length }}</strong> 项服务</span><span><strong>{{ runningCount }}</strong> 项运行中</span>
+      <span class="overview-metric"><strong>{{ services.length }}</strong> 项服务</span><span class="overview-metric running-metric"><strong>{{ runningCount }}</strong> 项运行中</span>
       <span class="collection-time">每 10 秒更新 · {{ collectedAt || '等待采集' }}</span>
     </div>
     <p
@@ -67,7 +67,7 @@
                 v-for="(value, key) in service.details"
                 :key="key"
               >
-                <dt>{{ key }}</dt><dd>{{ key === 'QQ 登录' ? loginLabel(value) : value }}</dd>
+                <dt>{{ key }}</dt><dd>{{ detailLabel(key, value) }}</dd>
               </template>
             </dl>
             <p
@@ -286,6 +286,11 @@ function bootLabel (value) { return ({ enabled: '开机启动', 'unless-stopped'
 function healthLabel (value) { return ({ healthy: '健康', unhealthy: '异常', unconfigured: '未配置', success: '最近运行正常', 'collection-error': '采集失败' })[value] || value || '未配置' }
 function loginLabel (value) { return ({ unknown: '暂时无法确认', 'login-required': '等待扫码', 'logged-in': '已登录', scanning: '正在确认登录', expired: '二维码已失效', failed: '登录失败', stopped: 'NapCat 未运行' })[value] || '正在检测' }
 function formatTime (value) { return new Date(value).toLocaleString() }
+function detailLabel (key, value) {
+  if (key === 'QQ 登录') return loginLabel(value)
+  if (key === '登录事件时间') return value === 'unknown' ? '尚未识别' : formatTime(value)
+  return value
+}
 async function read (path) {
   const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', signal: abort.signal })
   if (!response.ok) throw new Error(response.status === 403 ? '请使用有管理权限的账号登录。' : '无法读取服务数据，请检查采集或网络状态。')
@@ -378,20 +383,22 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(qrExpiryTimer); abort.abo
 .services-heading h1 { font-size: clamp(1.6rem, 3vw, 2.15rem); letter-spacing: -.045em; margin: .45rem 0; }
 .services-heading p, .service-title p { color: var(--site-muted); margin: 0; font-size: .9rem; }
 .services-heading button { white-space: nowrap; background: var(--site-surface); }
-.services-overview { display: flex; flex-wrap: wrap; gap: 1.2rem; padding: 1rem 1.3rem; border: 1px solid var(--site-line); border-radius: 16px; background: var(--site-surface); backdrop-filter: blur(12px); font-size: .85rem; }
-.services-overview strong { font-size: 1.25rem; margin-right: .2rem; }
+.services-overview { display: flex; flex-wrap: wrap; gap: 1.2rem; padding: 1rem 1.3rem; border: 1px solid var(--site-line); border-radius: 16px; background: var(--site-surface); backdrop-filter: blur(16px); box-shadow: var(--site-shadow); font-size: .85rem; }
+.overview-metric { display: inline-flex; align-items: center; gap: .35rem; }
+.services-overview strong { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.running-metric::before { content: ''; width: .4rem; height: .4rem; margin-right: .2rem; border-radius: 50%; background: #22a06b; }
 .collection-time { margin-left: auto; color: var(--site-muted); align-self: center; }
 .service-group { margin-top: 1.8rem; }
 .group-title { font-size: 1rem; font-weight: 600; margin-bottom: .8rem; }
-.group-title span { color: var(--site-muted); font-size: .75rem; margin-left: .3rem; }
+.group-title span { color: var(--site-muted); font-size: .7rem; font-weight: 500; margin-left: .4rem; padding: .15rem .45rem; border: 1px solid var(--site-line); border-radius: 999px; background: var(--site-card); }
 .service-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1rem; align-items: start; }
 .service-tile { min-width: 0; }
-.service-card { display: flex; flex-direction: column; padding: 1.2rem; min-width: 0; border: 1px solid var(--site-line); border-radius: 16px; background: var(--site-surface); backdrop-filter: blur(12px); box-shadow: 0 8px 32px rgb(31 38 135 / 12%); }
-.service-card-heading { display: flex; align-items: center; gap: .7rem; margin-bottom: 1.1rem; }
+.service-card { display: flex; flex-direction: column; padding: 1.2rem; min-width: 0; border: 1px solid var(--site-line); border-radius: 16px; background: var(--site-surface); backdrop-filter: blur(16px); box-shadow: var(--site-shadow); transition: border-color .18s, box-shadow .18s; }
+.service-card-heading { display: flex; align-items: center; gap: .7rem; margin-bottom: 1rem; padding-bottom: .9rem; border-bottom: 1px solid var(--site-line); }
 .service-icon { width: 44px; height: 44px; flex: 0 0 auto; display: grid; place-items: center; background: rgb(37 99 235 / 12%); color: var(--site-accent); border-radius: 12px; font-size: .9rem; font-weight: 700; }
 .service-icon img { width: 27px; height: 27px; object-fit: contain; }
 .service-title { min-width: 0; }
-.service-title h2 { font-size: .95rem; margin: 0 0 .25rem; }
+.service-title h2 { font-size: 1rem; font-weight: 650; margin: 0 0 .25rem; }
 .service-title p { font-size: .72rem; }
 .state-badge { margin-left: auto; flex-shrink: 0; border-radius: 999px; padding: .3rem .5rem; font-size: .68rem; background: var(--site-card); }
 .state-badge[data-state="active"], .state-badge[data-state="running"] { color: #0f6b45; background: #d4f3e3; }
@@ -403,6 +410,7 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(qrExpiryTimer); abort.abo
 .service-note { color: var(--site-muted); font-size: .75rem; line-height: 1.6; }
 .service-utilities { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; margin-top: auto; padding-top: 1rem; }
 .service-utilities button, .service-utilities a { font-size: .75rem; }
+.service-utilities button { background: var(--site-card); border: 1px solid var(--site-line); }
 .service-utilities a { margin-left: auto; }
 .service-actions { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--site-line); }
 .service-actions :deep(button) { font-size: .68rem; padding: .4rem .55rem; min-height: 30px; }
@@ -415,5 +423,6 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(qrExpiryTimer); abort.abo
 .qq-qr { display: flex; flex-direction: column; gap: .7rem; text-align: center; font-size: .75rem; }
 .qq-qr img { width: 210px; height: 210px; background: white; padding: 12px; border-radius: 12px; image-rendering: pixelated; box-sizing: content-box; }
 :deep(.qq-login-section), :deep(.business-log-section) { margin-top: 1.6rem; }
+@media (hover: hover) { .service-card:hover { border-color: color-mix(in srgb, var(--site-accent) 35%, var(--site-line)); } }
 @media (max-width: 640px) { .services-heading { flex-wrap: wrap; } .collection-time { margin-left: 0; width: 100%; } .service-card { padding: 1rem; } .service-actions :deep(button) { min-height: 44px; } .qq-login-content { flex-direction: column; align-items: flex-start; } }
 </style>

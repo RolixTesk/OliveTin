@@ -202,11 +202,11 @@
       </div>
     </div>
     <Teleport
+      v-if="selectedService"
       to="#napcat-panels"
       :disabled="selectedService !== 'napcat'"
     >
       <Section
-        v-if="selectedService"
         :title="`业务日志 · ${selectedServiceName}`"
         classes="business-log-section"
       >

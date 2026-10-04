@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 """Fixed ECS service operations. Install root-owned; called through restricted sudo."""
+import base64
 import datetime
 import fcntl
 import json
@@ -50,18 +51,100 @@ def sanitize(text):
     return text.encode('utf-8')[-160 * 1024:].decode('utf-8', errors='ignore')
 
 
-def qq_login(text):
-    status = 'unknown'
-    event_at = ''
+QR_PATH = '/app/napcat/cache/qrcode.png'
+QR_WINDOW_SECONDS = 120
+LOGIN_MESSAGES = {
+    'unknown': '最近日志不足以确认 QQ 登录状态，可打开原管理页核对。',
+    'login-required': '请使用手机 QQ 扫码，并在手机上确认授权。',
+    'logged-in': '本次启动的日志已识别登录成功；连接与消息处理状态需另行确认。',
+    'scanning': '已识别扫码事件，请在手机 QQ 上完成确认。',
+    'expired': '二维码已超出有效窗口，等待 NapCat 生成新二维码。',
+    'failed': '最近登录失败，请查看业务日志或原管理页。',
+    'stopped': 'NapCat 未运行，无法获取当前登录二维码。',
+}
+
+
+def login_event(line):
+    if re.search(r'将在|成功后|登录方式|二维码生成网站', line):
+        return None
+    if re.search(r'ErrType:\s*1\s+ErrCode:\s*3|二维码.*(?:过期|失效)', line, re.I):
+        return 'expired'
+    if re.search(r'被迫下线|退出登录|logout', line, re.I):
+        return 'login-required'
+    if re.search(r'登录失败|Login Error|login failed', line, re.I):
+        return 'failed'
+    if re.search(r'扫码成功|onQRCodeSessionUserScaned', line, re.I):
+        return 'scanning'
+    if re.search(r'登录成功|当前账号.*已登录|login success|logged in successfully', line, re.I):
+        return 'logged-in'
+    if re.search(r'请扫描下面的二维码|二维码已保存到|^\S+ 请扫描二维码', line):
+        return 'login-required'
+    return None
+
+
+def parse_login(text):
+    result = {'status': 'unknown', 'eventAt': '', 'qrEventAt': ''}
     for line in ANSI.sub('', text).splitlines():
-        if re.search(r'登录成功|login success|logged in successfully', line, re.I):
-            status = 'logged-in'
-        elif re.search(r'退出登录|被迫下线|登录失败|二维码|请.*扫码|QR.?code|login failed', line, re.I):
-            status = 'login-required'
-        else:
+        status = login_event(line)
+        if status is None:
             continue
-        event_at = line.split(' ', 1)[0]
-    return {'QQ 登录': status, '登录事件时间': event_at or 'unknown'}
+        timestamp = line.split(' ', 1)[0]
+        result.update(status=status, eventAt=timestamp)
+        if '二维码已保存到' in line or '请扫描' in line:
+            result['qrEventAt'] = timestamp
+        elif status != 'scanning':
+            result['qrEventAt'] = ''
+    result['message'] = LOGIN_MESSAGES[result['status']]
+    return result
+
+
+def qq_login(text):
+    info = parse_login(text)
+    return {'QQ 登录': info['status'], '登录事件时间': info['eventAt'] or 'unknown',
+            'OneBot 连接': '未独立检测', 'AstrBot 消息处理': '未独立检测'}
+
+
+def epoch(value):
+    return datetime.datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp()
+
+
+def iso_time(value):
+    return datetime.datetime.fromtimestamp(value, datetime.timezone.utc).isoformat()
+
+
+def attach_qr(info, started, now):
+    if info['status'] not in ('login-required', 'scanning') or not info['qrEventAt']:
+        return info
+    stat = run(['/usr/bin/docker', 'exec', 'napcat', 'stat', '-c', '%s %Y', QR_PATH]).split()
+    size, modified = map(int, stat)
+    expires = min(epoch(info['qrEventAt']), modified) + QR_WINDOW_SECONDS
+    info['qrExpiresAt'] = iso_time(expires)
+    if now >= expires:
+        info.update(status='expired', message=LOGIN_MESSAGES['expired'])
+        return info
+    if modified < epoch(started) or abs(modified - epoch(info['qrEventAt'])) > 5 or not 8 <= size <= 128 * 1024:
+        return info
+    result = subprocess.run(['/usr/bin/docker', 'exec', 'napcat', 'cat', QR_PATH],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8, env=ENV)
+    if result.returncode or len(result.stdout) != size or not result.stdout.startswith(b'\x89PNG\r\n\x1a\n'):
+        return info
+    info['qrImage'] = 'data:image/png;base64,' + base64.b64encode(result.stdout).decode('ascii')
+    return info
+
+
+def login_info():
+    data = container_info('napcat')
+    now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    if data['state'] != 'running':
+        info = {'status': 'stopped', 'message': LOGIN_MESSAGES['stopped']}
+    else:
+        info = parse_login(napcat_logs(data['started']))
+        try:
+            info = attach_qr(info, data['started'], now)
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+            info['message'] += ' 当前二维码暂不可读取，请稍后重试。'
+    info.update(checkedAt=iso_time(now), containerStartedAt=data['started'])
+    print(json.dumps(info, ensure_ascii=False))
 
 
 def listening(port):
@@ -105,7 +188,7 @@ def service_state(service_id):
         item.update(state=data['state'], enabled=data['restart'], health=data['health'])
         if service_id == 'napcat':
             item['details'].update(qq_login(napcat_logs(data['started'])))
-            item['note'] = '登录事件来自本次容器启动后的最近日志；unknown 不代表离线。二维码展示将在后续页面改造加入。'
+            item['note'] = '登录事件来自本次容器启动后的最近日志；unknown 不代表离线。点击“QQ 登录”读取当前二维码；登录事件不代表 OneBot 已连接。'
     elif kind == 'unit':
         item.update(unit_info(target))
     else:
@@ -192,6 +275,11 @@ def main(args):
     if len(args) != 2 or args[1] not in SERVICES:
         raise ValueError('Unknown operation or service')
     verb, service_id = args
+    if verb == 'login':
+        if service_id != 'napcat':
+            raise ValueError('Login source not allowed')
+        login_info()
+        return
     if verb == 'logs':
         logs(service_id)
         return

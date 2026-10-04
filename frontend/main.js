@@ -3,6 +3,7 @@
 import 'picocrank/styles.css'
 import 'femtocrank/dark.css'
 import './style.css'
+import './personal.css'
 
 import 'iconify-icon'
 

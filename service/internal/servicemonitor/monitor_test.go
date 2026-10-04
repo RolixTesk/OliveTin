@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/OliveTin/OliveTin/internal/config"
@@ -27,6 +28,8 @@ func TestReadAccessAndFixedTargets(t *testing.T) {
 		code              int
 	}{
 		{"GET", "/service-monitor/status", "", 403},
+		{"GET", "/service-monitor/napcat-login", "", 403},
+		{"GET", "/service-monitor/napcat-login", "test-only-key", 404},
 		{"GET", "/service-monitor/status", "invalid", 403},
 		{"GET", "/service-monitor/status", "test-only-key", 200},
 		{"POST", "/service-monitor/status", "test-only-key", 405},
@@ -53,5 +56,31 @@ func TestFailedSamplePreservesTimestampAndReportsStale(t *testing.T) {
 	}
 	if m.sample.Error == "contains secret diagnostic" {
 		t.Fatal("raw helper errors must not leak into API")
+	}
+}
+
+func TestLoginJSON(t *testing.T) {
+	m := testMonitor()
+	m.cfg.ServiceMonitor.ServiceIDs = []string{"napcat"}
+	m.cfg.ServiceMonitor.Command = []string{"sh", "-c", `printf '%s' '{"status":"unknown"}'`}
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/service-monitor/napcat-login", nil)
+	req.Header.Set("Authorization", "Bearer test-only-key")
+	response := httptest.NewRecorder()
+	m.ServeHTTP(response, req)
+	if response.Code != 200 || response.Header().Get("Cache-Control") != "no-store" || !json.Valid(response.Body.Bytes()) {
+		t.Fatal("authenticated login information must be uncached valid JSON")
+	}
+}
+
+func TestInvalidLoginJSON(t *testing.T) {
+	m := testMonitor()
+	m.cfg.ServiceMonitor.ServiceIDs = []string{"napcat"}
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/service-monitor/napcat-login", nil)
+	req.Header.Set("Authorization", "Bearer test-only-key")
+	m.cfg.ServiceMonitor.Command = []string{"sh", "-c", `printf 'private-invalid-output'`}
+	response := httptest.NewRecorder()
+	m.ServeHTTP(response, req)
+	if response.Code != 502 || strings.Contains(response.Body.String(), "private-invalid-output") {
+		t.Fatal("invalid helper output must fail without leaking raw diagnostics")
 	}
 }

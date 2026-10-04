@@ -1,0 +1,199 @@
+@layer theme {
+  :root {
+    --site-surface: rgb(255 255 255 / 78%);
+    --site-card: rgb(255 255 255 / 62%);
+    --site-solid: #f4f7fc;
+    --site-muted: #566278;
+    --site-accent: #2563eb;
+    --site-line: rgb(255 255 255 / 78%);
+    --site-overlay: rgb(255 255 255 / 30%);
+    --text-color: #172033;
+    --muted-text-color: var(--site-muted);
+    --body-bg-color: transparent;
+    --section-bg-color: var(--site-surface);
+    --section-header-bg-color: transparent;
+    --header-bg-color: var(--site-surface);
+    --sidebar-bg-color: var(--site-surface);
+    --standout-bg-color: var(--site-solid);
+    --border-color: var(--site-line);
+    --header-border-color: var(--site-line);
+    --link-color: var(--site-accent);
+    --sidebar-link-color: var(--text-color);
+    --sidebar-hover-bg-color: rgb(37 99 235 / 12%);
+    --header-hover-background-color: rgb(37 99 235 / 12%);
+    --footer-chip-bg-color: var(--site-card);
+    --footer-link-color: var(--text-color);
+    --focus-outline-color: var(--site-accent);
+    --shadow-color: rgb(31 38 135 / 15%);
+  }
+
+  :root[data-theme="dark"] {
+    --site-surface: rgb(21 29 44 / 88%);
+    --site-card: rgb(255 255 255 / 9%);
+    --site-solid: #111a2b;
+    --site-muted: #b5c2d6;
+    --site-accent: #93bbff;
+    --site-line: rgb(255 255 255 / 16%);
+    --site-overlay: rgb(0 0 0 / 50%);
+    --text-color: #eef3fb;
+  }
+
+  body {
+    background: url('/personal/background.jpg') center / cover fixed;
+    font-family: Inter, 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+    color: var(--text-color);
+  }
+
+  #app {
+    min-height: 100svh;
+    background: var(--site-overlay);
+  }
+
+  header, #mainnav {
+    backdrop-filter: blur(16px);
+  }
+
+  header h1 {
+    font-size: 1.05rem;
+    font-weight: 650;
+    letter-spacing: -.02em;
+  }
+
+  .personal-site-link {
+    padding: .45rem .7rem;
+    font-size: .82rem;
+    white-space: nowrap;
+  }
+
+  #content {
+    min-width: 0;
+    background: transparent;
+  }
+
+  #content main {
+    max-width: 1240px;
+    margin: auto;
+    padding: 1.4rem;
+  }
+
+  section.with-header-and-content {
+    background: var(--site-surface); border: 1px solid var(--site-line);
+    border-radius: 16px; backdrop-filter: blur(12px);
+    box-shadow: 0 8px 32px rgb(31 38 135 / 15%); margin-bottom: 1.25rem;
+    overflow: hidden;
+  }
+
+  .section-header {
+    background: transparent;
+    padding: 1.1rem 1.3rem;
+    flex-wrap: wrap;
+    gap: .7rem;
+  }
+
+  .section-header h2 {
+    font-size: 1rem;
+  }
+
+  .section-content.padding {
+    padding: 1.3rem;
+  }
+
+  button, input, select {
+    border-radius: 10px;
+  }
+
+  button {
+    transition: background-color .18s, box-shadow .18s;
+  }
+
+  button:focus-visible, a:focus-visible {
+    outline: 2px solid var(--site-accent);
+    outline-offset: 3px;
+  }
+
+  .personal-login {
+    max-width: 410px;
+    margin: 8vh auto 0;
+  }
+
+  .personal-login .section-header {
+    padding: 1.6rem 1.8rem .3rem;
+  }
+
+  .personal-login .section-header h2 {
+    font-size: 1.4rem;
+  }
+
+  .personal-login .section-content {
+    padding: 1.4rem 1.8rem 1.8rem;
+  }
+
+  .login-intro {
+    color: var(--site-muted);
+    font-size: .9rem;
+    margin: 0 0 1rem;
+  }
+
+  .local-login-form {
+    display: grid;
+    gap: .85rem;
+  }
+
+  .local-login-form input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--site-solid);
+    padding: .85rem;
+  }
+
+  .local-login-form button {
+    background: #2563eb;
+    color: white;
+    padding: .85rem;
+    font-weight: 600;
+  }
+
+  footer {
+    color: var(--site-muted);
+    font-size: .8rem;
+  }
+
+  dialog {
+    background: var(--site-surface);
+    color: var(--text-color);
+    backdrop-filter: blur(16px);
+  }
+
+  .action-button button {
+    border-radius: 10px;
+  }
+
+  @media (width <= 640px) {
+    #content main {
+    padding: .85rem;
+  }
+
+    .personal-site-link {
+    display: none;
+  }
+
+    .personal-login {
+    margin-top: 5vh;
+  }
+
+    .section-header, .section-content.padding {
+    padding: 1rem;
+  }
+
+    header h1 {
+    font-size: .9rem;
+  }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+  }
+}

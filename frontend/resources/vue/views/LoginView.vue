@@ -1,8 +1,8 @@
 <template>
   <Section
-    title="Login to OliveTin"
+    title="登录服务管理"
     :icon="Login01Icon"
-    class="small"
+    class="small personal-login"
   >
     <div class="login-form">
       <div
@@ -43,7 +43,9 @@
         v-if="hasLocalLogin"
         class="login-local"
       >
-        <h3>Local Login</h3>
+        <p class="login-intro">
+          连接 WireGuard 后，使用管理账号登录。
+        </p>
         <form
           class="local-login-form"
           @submit.prevent="handleLocalLogin"
@@ -62,7 +64,8 @@
             name="username"
             autocomplete="username"
             required
-            placeholder="Username"
+            placeholder="账号"
+            aria-label="账号"
           >
           <input
             id="password"
@@ -70,7 +73,8 @@
             type="password"
             name="password"
             autocomplete="current-password"
-            placeholder="Password"
+            placeholder="密码"
+            aria-label="密码"
             required
           >
 
@@ -79,7 +83,7 @@
             :disabled="loading"
             class="login-button"
           >
-            {{ loading ? 'Logging in...' : 'Login' }}
+            {{ loading ? '正在登录…' : '进入管理面板' }}
           </button>
         </form>
       </div>
@@ -176,10 +180,10 @@ async function handleLocalLogin () {
         console.error('Failed to reinitialize after login:', initErr)
       }
 
-      // Redirect to home page on successful login
-      router.push('/')
+      // Management deployments open the overview; other installations retain home.
+      router.push(window.initResponse?.additionalLinks?.some(link => link.url === '/services') ? '/services' : '/')
     } else {
-      loginError.value = 'Login failed. Please check your credentials.'
+      loginError.value = '登录失败，请检查账号和密码。'
     }
   } catch (err) {
     console.error('Login error:', err)

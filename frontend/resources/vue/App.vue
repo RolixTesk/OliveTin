@@ -13,6 +13,10 @@
       @user-click="goToUserControlPanel"
     >
       <template #toolbar>
+        <a
+          class="personal-site-link"
+          href="https://rolixtesk.top/"
+        >返回主站 ↗</a>
         <QuickSearch
           v-if="!loginRequired && headerSearchEnabled"
           :items="searchIndexItems"

@@ -151,6 +151,14 @@ func (m *monitor) serveRead(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(m.sample)
 		return
 	}
+	if r.URL.Path == "/service-monitor/napcat-login" {
+		m.serveLogin(w, r)
+		return
+	}
+	m.serveLogPath(w, r)
+}
+
+func (m *monitor) serveLogPath(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/service-monitor/logs/")
 	if !strings.HasPrefix(r.URL.Path, "/service-monitor/logs/") || !slices.Contains(m.cfg.ServiceMonitor.ServiceIDs, id) {
 		http.NotFound(w, r)
@@ -167,4 +175,18 @@ func (m *monitor) serveLogs(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write(data) // #nosec G705 -- text/plain with nosniff; UI renders text, never HTML.
+}
+
+func (m *monitor) serveLogin(w http.ResponseWriter, r *http.Request) {
+	if !slices.Contains(m.cfg.ServiceMonitor.ServiceIDs, "napcat") {
+		http.NotFound(w, r)
+		return
+	}
+	data, err := m.run(r.Context(), "login", "napcat")
+	if err != nil || !json.Valid(data) {
+		http.Error(w, "NapCat login information unavailable", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(data) // #nosec G705 -- JSON with nosniff, rendered as text and a fixed-source PNG.
 }

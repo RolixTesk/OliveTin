@@ -4,7 +4,7 @@ This deployment builds `https://github.com/RolixTesk/OliveTin` with the service 
 
 The `/services` page samples the fixed collector every 10 seconds and displays runtime state, startup policy, container health, passive listener information, WireGuard handshake age and NapCat login events. Failed collection preserves the last timestamp and is marked stale. Business logs are fetched separately from action history, limited to 200 lines and 160 KiB, and filtered for common credential fields, bearer tokens and URL queries. Systemd journals cover this boot and the last 24 hours to avoid expensive scans of unrelated historical entries. Unknown QQ state is not reported as offline.
 
-The backend extension is optional, configured by `serviceMonitor`. Its read-only endpoints `/service-monitor/status` and `/service-monitor/logs/{id}` require an authenticated account with an explicitly allowed ACL. Service changes use OliveTin's existing executor, action ACLs, confirmations, action groups and logs. The root-owned helper permits only fixed service names and operations. Docker and WireGuard lifecycle changes remain SSH operations; Nginx allows a configuration check and validated reload.
+The backend extension is optional, configured by `serviceMonitor`. Its read-only endpoints `/service-monitor/status`, `/service-monitor/logs/{id}` and `/service-monitor/napcat-login` require an authenticated account with an explicitly allowed ACL. Service changes use OliveTin's existing executor, action ACLs, confirmations, action groups and logs. The root-owned helper permits only fixed service names and operations. Docker and WireGuard lifecycle changes remain SSH operations; Nginx allows a configuration check and validated reload.
 
 ## Build
 
@@ -46,11 +46,11 @@ Certbot uses its existing timer with the fixed-domain DNS auth/cleanup hooks. Th
 ## Service-specific behavior
 
 - AstrBot: systemd state and port listeners; stop does not disable future boot startup.
-- NapCat: container health and latest recognized QQ login event from current-container logs; actual QR extraction/display is scheduled for the later styled UI.
+- NapCat: container health and latest recognized QQ login event from current-container logs; the styled login panel reads the fixed current QR PNG and reports event/check timestamps. Images have a conservative 120-second display window, are cleared on expiry or a subsequent login/logout/failure event, and are never persisted in action history.
 - Clash: existing `clashon --service-only` and `clashoff --service-only` run as rolix; existing nohup implementation and log file are retained.
 - CouchDB, Stalwart, Roundcube: named-container lifecycle and business logs; stopping with `unless-stopped` keeps the container stopped across reboot.
 - HoyoPanel: existing unit lifecycle and journal.
 - Nginx: HTTP access/error logs and configuration validation before reload.
 - WireGuard: existing peer handshake information; no panel button that disconnects its own transport.
 
-Future work explicitly requested: visual restyling, automatic QR extraction and presentation, richer QQ login information and login detection in that workflow. The current basic login-event indicator does not prove OneBot connectivity or successful message processing.
+The personal-site theme is bundled locally and uses the existing light/dark preference. QQ login-event detection does not prove OneBot connectivity or successful message processing; actual account authorization is performed by the user on their phone.

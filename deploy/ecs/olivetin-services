@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 SERVICES = {
     'astrbot': ('AstrBot', 'unit', 'astrbot.service', [6185, 6199]),
@@ -56,7 +57,7 @@ QR_WINDOW_SECONDS = 120
 LOGIN_MESSAGES = {
     'unknown': '最近日志不足以确认 QQ 登录状态，可打开原管理页核对。',
     'login-required': '请使用手机 QQ 扫码，并在手机上确认授权。',
-    'logged-in': '本次启动的日志已识别登录成功；连接与消息处理状态需另行确认。',
+    'logged-in': '本次启动的日志已识别登录完成或登录后的运行事件；连接与消息处理状态需另行确认。',
     'scanning': '已识别扫码事件，请在手机 QQ 上完成确认。',
     'expired': '二维码已超出有效窗口，等待 NapCat 生成新二维码。',
     'failed': '最近登录失败，请查看业务日志或原管理页。',
@@ -64,12 +65,35 @@ LOGIN_MESSAGES = {
 }
 
 
+def log_body(line):
+    body = ANSI.sub('', line).partition(' ')[2]
+    return re.sub(r'^(?:\d{2}-\d{2} \d{2}:\d{2}:\d{2} )?\[(?:info|warn|error|debug|trace)\]\s*', '', body, flags=re.I)
+
+
+def log_structure(body):
+    if re.match(r'(?:接收\s*<-|发送\s*->)\s+(?:私聊|群聊|移动设备|临时消息)', body):
+        return 'message'
+    if re.search(r'二维码|QRCode', body, re.I):
+        return 'qr'
+    if re.search(r'登录|Login|KickedOffLine|账号状态变更为离线|\[AdapterManager\].*初始化完成', body, re.I):
+        return 'login'
+    if body.startswith('[NapCat] [WebUi]'):
+        return 'webui'
+    if re.match(r'\[(?:NapCat|Core|QQ版本)', body):
+        return 'startup'
+    return 'other'
+
+
 def login_event(line):
+    if log_structure(line) == 'message':
+        return 'logged-in'
+    if re.search(r'^\[AdapterManager\].*(?:OneBot11 适配器|协议适配器)初始化完成', line):
+        return 'logged-in'
     if re.search(r'将在|成功后|登录方式|二维码生成网站', line):
         return None
     if re.search(r'ErrType:\s*1\s+ErrCode:\s*3|二维码.*(?:过期|失效)', line, re.I):
         return 'expired'
-    if re.search(r'被迫下线|退出登录|logout', line, re.I):
+    if re.search(r'被迫下线|退出登录|KickedOffLine|账号被踢下线|账号状态变更为离线|登录态已失效|logout', line, re.I):
         return 'login-required'
     if re.search(r'登录失败|Login Error|login failed', line, re.I):
         return 'failed'
@@ -77,20 +101,21 @@ def login_event(line):
         return 'scanning'
     if re.search(r'登录成功|当前账号.*已登录|login success|logged in successfully', line, re.I):
         return 'logged-in'
-    if re.search(r'请扫描下面的二维码|二维码已保存到|^\S+ 请扫描二维码', line):
+    if re.search(r'请扫描下面的二维码|二维码已保存到|^请扫描二维码', line):
         return 'login-required'
     return None
 
 
 def parse_login(text):
     result = {'status': 'unknown', 'eventAt': '', 'qrEventAt': ''}
-    for line in ANSI.sub('', text).splitlines():
-        status = login_event(line)
+    for line in sorted(text.splitlines()):
+        body = log_body(line)
+        status = login_event(body)
         if status is None:
             continue
         timestamp = line.split(' ', 1)[0]
         result.update(status=status, eventAt=timestamp)
-        if '二维码已保存到' in line or '请扫描' in line:
+        if '二维码已保存到' in body or '请扫描' in body:
             result['qrEventAt'] = timestamp
         elif status != 'scanning':
             result['qrEventAt'] = ''
@@ -99,7 +124,7 @@ def parse_login(text):
 
 
 def qq_login(text):
-    info = parse_login(text)
+    info = parse_login(text) if isinstance(text, str) else text
     return {'QQ 登录': info['status'], '登录事件时间': info['eventAt'] or 'unknown',
             'OneBot 连接': '未独立检测', 'AstrBot 消息处理': '未独立检测'}
 
@@ -140,7 +165,7 @@ def login_info():
     if data['state'] != 'running':
         info = {'status': 'stopped', 'message': LOGIN_MESSAGES['stopped']}
     else:
-        info = parse_login(napcat_logs(data['started']))
+        info = scan_napcat(data['started'])
         try:
             info = attach_qr(info, data['started'], now)
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
@@ -175,9 +200,72 @@ def unit_info(target):
             'details': {'子状态': fields.get('SubState', 'unknown')}}
 
 
-def napcat_logs(started):
-    return run(['/usr/bin/docker', 'logs', '--timestamps', '--since', started,
-                '--tail', '500', 'napcat'])
+LOG_BATCH_LINES = 200
+LOG_SCAN_SECONDS = 14
+LOG_TIMESTAMP = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$')
+
+
+def napcat_log_pages(started, deadline):
+    tail = LOG_BATCH_LINES
+    oldest = ''
+    while time.monotonic() < deadline:
+        # Docker applies tail before until; enlarge the window and parse only older records.
+        args = ['/usr/bin/docker', 'logs', '--timestamps', '--since', started,
+                '--tail', str(tail), 'napcat']
+        text = run(args, timeout=max(.1, min(8, deadline - time.monotonic())))
+        lines = text.splitlines()
+        records = [line for line in lines if LOG_TIMESTAMP.fullmatch(line.partition(' ')[0])]
+        if not records:
+            return
+        batch = [line for line in records if not oldest or line.partition(' ')[0] < oldest]
+        if batch:
+            yield '\n'.join(batch)
+            oldest = min(line.partition(' ')[0] for line in batch)
+        if len(records) < tail:
+            return
+        tail += LOG_BATCH_LINES
+
+
+def webui_token(text):
+    for line in reversed(text.splitlines()):
+        body = log_body(line)
+        match = re.match(r'\[NapCat\] \[WebUi\] WebUi Token:\s*(\S+)', body)
+        if match and '*' not in match[1]:
+            return {'token': match[1], 'eventAt': line.partition(' ')[0]}
+    return None
+
+
+def scan_napcat(started, target='login'):
+    deadline = time.monotonic() + LOG_SCAN_SECONDS
+    info = parse_login('')
+    scanned = 0
+    structures = set()
+    try:
+        for text in napcat_log_pages(started, deadline):
+            scanned += len(text.splitlines())
+            structures.update(log_structure(log_body(line)) for line in text.splitlines())
+            found = webui_token(text) if target == 'token' else parse_login(text)
+            if target == 'token' and found:
+                return dict(found, scannedLines=scanned)
+            if target == 'login':
+                if info['status'] == 'unknown':
+                    info = found
+                elif info['status'] == 'scanning' and found['status'] in ('login-required', 'scanning'):
+                    info['qrEventAt'] = found['qrEventAt']
+                if info['status'] != 'unknown' and (info['status'] != 'scanning' or info['qrEventAt']):
+                    return dict(info, scannedLines=scanned, structures=sorted(structures))
+    except subprocess.TimeoutExpired:
+        info['message'] = '日志检索超过本次时间窗口，请稍后重新读取。'
+    if target == 'token':
+        return {'token': '', 'message': '本次启动的已检索日志中未找到 WebUI token，请稍后重试。', 'scannedLines': scanned}
+    return dict(info, scannedLines=scanned, structures=sorted(structures))
+
+
+def token_info():
+    data = container_info('napcat')
+    info = scan_napcat(data['started'], 'token') if data['state'] == 'running' else {'token': '', 'message': LOGIN_MESSAGES['stopped']}
+    info['containerStartedAt'] = data['started']
+    print(json.dumps(info, ensure_ascii=False))
 
 
 def service_state(service_id):
@@ -189,8 +277,8 @@ def service_state(service_id):
         data = container_info(target)
         item.update(state=data['state'], enabled=data['restart'], health=data['health'])
         if service_id == 'napcat':
-            item['details'].update(qq_login(napcat_logs(data['started'])))
-            item['note'] = '登录事件来自本次容器启动后的最近日志；unknown 不代表离线。点击“QQ 登录”读取当前二维码；登录事件不代表 OneBot 已连接。'
+            item['details'].update(qq_login(scan_napcat(data['started']) if data['state'] == 'running' else {'status': 'stopped', 'eventAt': ''}))
+            item['note'] = '依据本次启动的登录事件和消息活动判断 QQ 状态；缺少信息时每批 200 行向前检索。点击“QQ 登录”读取当前二维码；登录事件不代表 OneBot 已连接。'
     elif kind == 'unit':
         item.update(unit_info(target))
     else:
@@ -277,6 +365,11 @@ def main(args):
     if len(args) != 2 or args[1] not in SERVICES:
         raise ValueError('Unknown operation or service')
     verb, service_id = args
+    if verb == 'token':
+        if service_id != 'napcat':
+            raise ValueError('Token source not allowed')
+        token_info()
+        return
     if verb == 'login':
         if service_id != 'napcat':
             raise ValueError('Login source not allowed')

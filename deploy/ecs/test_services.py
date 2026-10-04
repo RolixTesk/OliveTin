@@ -4,6 +4,8 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 import subprocess
+import io
+import json
 
 loader = importlib.machinery.SourceFileLoader('services', str(Path(__file__).with_name('olivetin-services')))
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -12,6 +14,66 @@ loader.exec_module(services)
 
 
 class ServiceBoundaryTests(unittest.TestCase):
+    def test_structured_messages_and_post_login_initialization(self):
+        prefix = '2026-10-04T07:00:00.123456789Z 10-04 07:00:00 [info] '
+        for body in ['[AdapterManager] OneBot11 适配器初始化完成',
+                     '[AdapterManager] 协议适配器初始化完成，已加载 test',
+                     '接收 <- 群聊 [test] [test] 登录失败 被迫下线',
+                     '发送 -> 私聊 (test) [NapCat] [WebUi] WebUi Token: quoted']:
+            self.assertEqual(services.parse_login(prefix + body)['status'], 'logged-in')
+            self.assertIsNone(services.webui_token(prefix + body))
+        text = prefix + '接收 <- 群聊 [test] [test] hi'
+        offline = '2026-10-04T07:01:00Z [KickedOffLine] [test] disconnected'
+        self.assertEqual(services.parse_login(offline + '\n' + text)['status'], 'login-required')
+
+    def test_backward_batches_find_older_login_and_webui_information(self):
+        start = '2026-10-04T07:00:00Z'
+        event = start + ' [NapCat] 已通知主进程登录成功'
+        token = start + ' [NapCat] [WebUi] WebUi Token: synthetic-token'
+        filler = [f'2026-10-04T07:{1 + i // 60:02}:{i % 60:02}.000000000Z [Core] heartbeat' for i in range(600)]
+        for target, first in [('login', event), ('token', token)]:
+            calls = []
+            def read_page(args, **kwargs):
+                calls.append(args)
+                tail = int(args[args.index('--tail') + 1])
+                return '\n'.join(([first] + filler)[-tail:])
+            with patch.object(services, 'run', side_effect=read_page):
+                result = services.scan_napcat(start, target)
+            self.assertEqual(result['scannedLines'], 601)
+            self.assertEqual(len(calls), 4)
+            self.assertEqual([int(args[args.index('--tail') + 1]) for args in calls], [200, 400, 600, 800])
+            self.assertTrue(all(args[args.index('--since') + 1] == start for args in calls))
+            self.assertTrue(all('--until' not in args for args in calls))
+            if target == 'login':
+                self.assertEqual(result['status'], 'logged-in')
+            else:
+                self.assertEqual(result['token'], 'synthetic-token')
+                self.assertNotIn('synthetic-token', services.sanitize(first))
+
+    def test_recent_message_stops_search_and_scan_keeps_newer_state(self):
+        message = '2026-10-04T07:02:00Z 接收 <- 群聊 [test] [test] hi'
+        with patch.object(services, 'napcat_log_pages', return_value=iter([message, 'old events'])):
+            self.assertEqual(services.scan_napcat('2026-10-04T07:00:00Z')['scannedLines'], 1)
+        scan = '2026-10-04T07:02:00Z onQRCodeSessionUserScaned'
+        qr = '2026-10-04T07:01:00Z 二维码已保存到 /app/napcat/cache/qrcode.png'
+        with patch.object(services, 'napcat_log_pages', return_value=iter([scan, qr])):
+            result = services.scan_napcat('2026-10-04T07:00:00Z')
+        self.assertEqual(result['status'], 'scanning')
+        self.assertEqual(result['eventAt'], scan.split()[0])
+        self.assertEqual(result['qrEventAt'], qr.split()[0])
+        with patch.object(services, 'run', return_value='2026-10-04T07:00:00Z [Core] startup'):
+            self.assertEqual(services.scan_napcat('2026-10-04T07:00:00Z')['status'], 'unknown')
+        with patch.object(services, 'run', side_effect=subprocess.TimeoutExpired('docker', 1)):
+            self.assertEqual(services.scan_napcat('2026-10-04T07:00:00Z')['status'], 'unknown')
+
+    def test_stopped_token_does_not_read_old_history(self):
+        output = io.StringIO()
+        with patch.object(services, 'container_info', return_value={'state': 'exited', 'started': '2026-10-04T07:00:00Z'}), \
+                patch.object(services, 'scan_napcat') as scan, patch('sys.stdout', output):
+            services.token_info()
+        scan.assert_not_called()
+        self.assertEqual(json.loads(output.getvalue())['token'], '')
+
     def test_latest_login_event_and_unknown(self):
         self.assertEqual(services.qq_login('nothing')['QQ 登录'], 'unknown')
         text = '2026-10-02T01:00:00Z 请扫描二维码\n2026-10-02T01:01:00Z 登录成功'
@@ -67,7 +129,7 @@ class ServiceBoundaryTests(unittest.TestCase):
                 self.assertNotIn(value, cleaned)
 
     def test_fixed_service_operations(self):
-        for args in [['restart', 'docker'], ['stop', 'wireguard'], ['logs', '../../etc/shadow'], ['exec', 'astrbot']]:
+        for args in [['restart', 'docker'], ['stop', 'wireguard'], ['logs', '../../etc/shadow'], ['exec', 'astrbot'], ['token', 'astrbot']]:
             with self.assertRaises(ValueError):
                 services.main(args)
 

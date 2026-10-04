@@ -152,7 +152,11 @@ func (m *monitor) serveRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/service-monitor/napcat-login" {
-		m.serveLogin(w, r)
+		m.serveNapcat(w, r, "login")
+		return
+	}
+	if r.URL.Path == "/service-monitor/napcat-token" {
+		m.serveNapcat(w, r, "token")
 		return
 	}
 	m.serveLogPath(w, r)
@@ -177,16 +181,16 @@ func (m *monitor) serveLogs(w http.ResponseWriter, r *http.Request, id string) {
 	_, _ = w.Write(data) // #nosec G705 -- text/plain with nosniff; UI renders text, never HTML.
 }
 
-func (m *monitor) serveLogin(w http.ResponseWriter, r *http.Request) {
+func (m *monitor) serveNapcat(w http.ResponseWriter, r *http.Request, operation string) {
 	if !slices.Contains(m.cfg.ServiceMonitor.ServiceIDs, "napcat") {
 		http.NotFound(w, r)
 		return
 	}
-	data, err := m.run(r.Context(), "login", "napcat")
+	data, err := m.run(r.Context(), operation, "napcat")
 	if err != nil || !json.Valid(data) {
-		http.Error(w, "NapCat login information unavailable", http.StatusBadGateway)
+		http.Error(w, "NapCat information unavailable", http.StatusBadGateway)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(data) // #nosec G705 -- JSON with nosniff, rendered as text and a fixed-source PNG.
+	_, _ = w.Write(data) // #nosec G705 -- Uncached JSON with nosniff; token is used only by the explicit clipboard action.
 }

@@ -30,6 +30,9 @@ func TestReadAccessAndFixedTargets(t *testing.T) {
 		{"GET", "/service-monitor/status", "", 403},
 		{"GET", "/service-monitor/napcat-login", "", 403},
 		{"GET", "/service-monitor/napcat-login", "test-only-key", 404},
+		{"GET", "/service-monitor/napcat-token", "", 403},
+		{"GET", "/service-monitor/napcat-token", "test-only-key", 404},
+		{"POST", "/service-monitor/napcat-token", "test-only-key", 405},
 		{"GET", "/service-monitor/status", "invalid", 403},
 		{"GET", "/service-monitor/status", "test-only-key", 200},
 		{"POST", "/service-monitor/status", "test-only-key", 405},
@@ -43,6 +46,19 @@ func TestReadAccessAndFixedTargets(t *testing.T) {
 		if response.Code != item.code {
 			t.Fatalf("%s %s: got %d, want %d", item.method, item.path, response.Code, item.code)
 		}
+	}
+}
+
+func TestTokenJSON(t *testing.T) {
+	m := testMonitor()
+	m.cfg.ServiceMonitor.ServiceIDs = []string{"napcat"}
+	m.cfg.ServiceMonitor.Command = []string{"sh", "-c", `printf '%s' '{"token":"synthetic-token"}'`}
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/service-monitor/napcat-token", nil)
+	req.Header.Set("Authorization", "Bearer test-only-key")
+	response := httptest.NewRecorder()
+	m.ServeHTTP(response, req)
+	if response.Code != 200 || response.Header().Get("Cache-Control") != "no-store" || response.Body.String() != `{"token":"synthetic-token"}` {
+		t.Fatal("explicit authenticated token retrieval must return uncached JSON")
 	}
 }
 

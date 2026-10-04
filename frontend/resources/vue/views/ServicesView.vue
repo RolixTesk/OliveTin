@@ -39,189 +39,216 @@
         {{ group.name }} <span>{{ group.items.length }}</span>
       </h2>
       <div class="service-grid">
-        <article
+        <div
           v-for="service in group.items"
           :key="service.id"
-          class="service-card"
+          class="service-tile"
         >
-          <div class="service-card-heading">
-            <div class="service-icon">
-              <img
-                v-if="icons[service.id]"
-                :src="icons[service.id]"
-                alt=""
-              ><span v-else>{{ service.id.slice(0, 2).toUpperCase() }}</span>
+          <article class="service-card">
+            <div class="service-card-heading">
+              <div class="service-icon">
+                <img
+                  v-if="icons[service.id]"
+                  :src="icons[service.id]"
+                  alt=""
+                ><span v-else>{{ service.id.slice(0, 2).toUpperCase() }}</span>
+              </div>
+              <div class="service-title">
+                <h2>{{ service.name }}</h2><p>{{ descriptions[service.id] }}</p>
+              </div>
+              <span
+                class="state-badge"
+                :data-state="service.state"
+              >{{ stateLabel(service.state) }}</span>
             </div>
-            <div class="service-title">
-              <h2>{{ service.name }}</h2><p>{{ descriptions[service.id] }}</p>
+            <dl>
+              <dt>自启动</dt><dd>{{ bootLabel(service.enabled) }}</dd><dt>健康检查</dt><dd>{{ healthLabel(service.health) }}</dd>
+              <template
+                v-for="(value, key) in service.details"
+                :key="key"
+              >
+                <dt>{{ key }}</dt><dd>{{ key === 'QQ 登录' ? loginLabel(value) : value }}</dd>
+              </template>
+            </dl>
+            <p
+              v-if="service.note"
+              class="service-note"
+            >
+              {{ service.note }}
+            </p>
+            <div class="service-utilities">
+              <button
+                type="button"
+                @click="openLogs(service.id)"
+              >
+                业务日志
+              </button>
+              <button
+                v-if="service.id === 'napcat'"
+                type="button"
+                @click="openLogin"
+              >
+                QQ 登录
+              </button>
+              <button
+                v-if="service.id === 'napcat'"
+                type="button"
+                :disabled="tokenLoading"
+                @click="copyToken"
+              >
+                {{ tokenLoading ? '读取中…' : '复制 WebUI token' }}
+              </button>
+              <a
+                v-if="service.url"
+                :href="service.url"
+                target="_blank"
+                rel="noopener noreferrer"
+              >原管理页 ↗</a>
             </div>
-            <span
-              class="state-badge"
-              :data-state="service.state"
-            >{{ stateLabel(service.state) }}</span>
-          </div>
-          <dl>
-            <dt>自启动</dt><dd>{{ bootLabel(service.enabled) }}</dd><dt>健康检查</dt><dd>{{ healthLabel(service.health) }}</dd>
-            <template
-              v-for="(value, key) in service.details"
-              :key="key"
+            <p
+              v-if="service.id === 'napcat' && tokenFeedback"
+              class="service-note token-feedback"
+              role="status"
             >
-              <dt>{{ key }}</dt><dd>{{ value }}</dd>
-            </template>
-          </dl>
-          <p
-            v-if="service.note"
-            class="service-note"
-          >
-            {{ service.note }}
-          </p>
-          <div class="service-utilities">
-            <button
-              type="button"
-              @click="openLogs(service.id)"
+              {{ tokenFeedback }}
+            </p>
+            <div
+              v-if="service.actions?.length"
+              class="service-actions"
             >
-              业务日志
-            </button>
-            <button
-              v-if="service.id === 'napcat'"
-              type="button"
-              @click="openLogin"
-            >
-              QQ 登录
-            </button>
-            <a
-              v-if="service.url"
-              :href="service.url"
-              target="_blank"
-              rel="noopener noreferrer"
-            >原管理页 ↗</a>
-          </div>
+              <ActionButton
+                v-for="action in actionsFor(service)"
+                :key="action.bindingId"
+                :action-data="action"
+              />
+            </div>
+          </article>
           <div
-            v-if="service.actions?.length"
-            class="service-actions"
+            v-if="service.id === 'napcat'"
+            id="napcat-panels"
           >
-            <ActionButton
-              v-for="action in actionsFor(service)"
-              :key="action.bindingId"
-              :action-data="action"
-            />
+            <Section
+              v-if="showLogin"
+              title="NapCat · QQ 登录"
+              classes="qq-login-section"
+            >
+              <template #toolbar>
+                <button
+                  type="button"
+                  :disabled="loginLoading"
+                  @click="refreshLogin"
+                >
+                  重新读取
+                </button><button
+                  type="button"
+                  @click="closeLogin"
+                >
+                  关闭
+                </button>
+              </template>
+              <p
+                v-if="loginError"
+                role="alert"
+              >
+                {{ loginError }}
+              </p>
+              <div
+                v-else
+                class="qq-login-content"
+              >
+                <div
+                  v-if="loginData?.qrImage"
+                  class="qq-qr"
+                >
+                  <img
+                    :src="loginData.qrImage"
+                    alt="QQ 登录二维码"
+                  ><span>请使用手机 QQ 扫码授权</span>
+                </div>
+                <div>
+                  <h3>{{ loginLabel(loginData?.status) }}</h3><p>{{ loginData?.message || '正在读取本次启动的登录事件…' }}</p>
+                  <p
+                    v-if="loginData?.eventAt"
+                    class="service-note"
+                  >
+                    事件时间：{{ formatTime(loginData.eventAt) }}
+                  </p>
+                  <p
+                    v-if="loginData?.qrExpiresAt"
+                    class="service-note"
+                  >
+                    二维码展示截止：{{ formatTime(loginData.qrExpiresAt) }}
+                  </p>
+                  <p
+                    v-if="loginData?.checkedAt"
+                    class="service-note"
+                  >
+                    最近检测：{{ formatTime(loginData.checkedAt) }}
+                  </p>
+                  <p
+                    v-if="loginData?.containerStartedAt"
+                    class="service-note"
+                  >
+                    本次容器启动：{{ formatTime(loginData.containerStartedAt) }}
+                  </p>
+                  <p class="service-note">
+                    每 10 秒检测。QQ 登录事件不等同于 OneBot 连接或 AstrBot 消息处理状态。
+                  </p>
+                </div>
+              </div>
+            </Section>
           </div>
-        </article>
+        </div>
       </div>
     </div>
-    <Section
-      v-if="showLogin"
-      title="NapCat · QQ 登录"
-      classes="qq-login-section"
+    <Teleport
+      to="#napcat-panels"
+      :disabled="selectedService !== 'napcat'"
     >
-      <template #toolbar>
-        <button
-          type="button"
-          :disabled="loginLoading"
-          @click="refreshLogin"
-        >
-          重新读取
-        </button><button
-          type="button"
-          @click="closeLogin"
-        >
-          关闭
-        </button>
-      </template>
-      <p
-        v-if="loginError"
-        role="alert"
+      <Section
+        v-if="selectedService"
+        :title="`业务日志 · ${selectedServiceName}`"
+        classes="business-log-section"
       >
-        {{ loginError }}
-      </p>
-      <div
-        v-else
-        class="qq-login-content"
-      >
-        <div
-          v-if="loginData?.qrImage"
-          class="qq-qr"
-        >
-          <img
-            :src="loginData.qrImage"
-            alt="QQ 登录二维码"
-          ><span>请使用手机 QQ 扫码授权</span>
-        </div>
-        <div>
-          <h3>{{ loginLabel(loginData?.status) }}</h3><p>{{ loginData?.message || '正在读取本次启动的登录事件…' }}</p>
-          <p
-            v-if="loginData?.eventAt"
-            class="service-note"
+        <template #toolbar>
+          <button
+            type="button"
+            :disabled="logsLoading"
+            @click="openLogs(selectedService)"
           >
-            事件时间：{{ formatTime(loginData.eventAt) }}
-          </p>
-          <p
-            v-if="loginData?.qrExpiresAt"
-            class="service-note"
+            刷新日志
+          </button><button
+            type="button"
+            @click="selectedService = ''"
           >
-            二维码展示截止：{{ formatTime(loginData.qrExpiresAt) }}
-          </p>
-          <p
-            v-if="loginData?.checkedAt"
-            class="service-note"
-          >
-            最近检测：{{ formatTime(loginData.checkedAt) }}
-          </p>
-          <p
-            v-if="loginData?.containerStartedAt"
-            class="service-note"
-          >
-            本次容器启动：{{ formatTime(loginData.containerStartedAt) }}
-          </p>
-          <p class="service-note">
-            每 10 秒检测。QQ 登录事件不等同于 OneBot 连接或 AstrBot 消息处理状态。
-          </p>
-        </div>
-      </div>
-    </Section>
-    <Section
-      v-if="selectedService"
-      :title="`业务日志 · ${selectedServiceName}`"
-      classes="business-log-section"
-    >
-      <template #toolbar>
-        <button
-          type="button"
-          :disabled="logsLoading"
-          @click="openLogs(selectedService)"
+            关闭
+          </button>
+        </template>
+        <p class="service-note">
+          最近最多 200 行；systemd 日志限本次开机的最近 24 小时。动作执行记录在“Logs”页面。
+        </p>
+        <p
+          v-if="logsError"
+          role="alert"
         >
-          刷新日志
-        </button><button
-          type="button"
-          @click="selectedService = ''"
+          {{ logsError }}
+        </p><p
+          v-else-if="logsLoading"
+          role="status"
         >
-          关闭
-        </button>
-      </template>
-      <p class="service-note">
-        最近最多 200 行；systemd 日志限本次开机的最近 24 小时。动作执行记录在“Logs”页面。
-      </p>
-      <p
-        v-if="logsError"
-        role="alert"
-      >
-        {{ logsError }}
-      </p><p
-        v-else-if="logsLoading"
-        role="status"
-      >
-        正在读取业务日志…
-      </p><p
-        v-else-if="!logs.trim()"
-        role="status"
-      >
-        当前范围内没有日志。
-      </p>
-      <pre
-        v-else
-        class="business-log"
-      >{{ logs }}</pre>
-    </Section>
+          正在读取业务日志…
+        </p><p
+          v-else-if="!logs.trim()"
+          role="status"
+        >
+          当前范围内没有日志。
+        </p>
+        <pre
+          v-else
+          class="business-log"
+        >{{ logs }}</pre>
+      </Section>
+    </Teleport>
   </div>
 </template>
 <script setup>
@@ -241,6 +268,8 @@ const showLogin = ref(false)
 const loginData = ref(null)
 const loginError = ref('')
 const loginLoading = ref(false)
+const tokenLoading = ref(false)
+const tokenFeedback = ref('')
 const abort = new AbortController()
 let timer
 let qrExpiryTimer
@@ -255,7 +284,7 @@ const selectedServiceName = computed(() => services.value.find(service => servic
 function stateLabel (state) { return ({ active: '运行中', running: '运行中', stopped: '已停止', inactive: '已停止', exited: '已退出', failed: '故障', unknown: '未知' })[state] || state }
 function bootLabel (value) { return ({ enabled: '开机启动', 'unless-stopped': '自动恢复 · 主动停止除外', disabled: '未启用', unknown: '未知' })[value] || value }
 function healthLabel (value) { return ({ healthy: '健康', unhealthy: '异常', unconfigured: '未配置', success: '最近运行正常', 'collection-error': '采集失败' })[value] || value || '未配置' }
-function loginLabel (value) { return ({ unknown: '暂时无法确认', 'login-required': '等待扫码', 'logged-in': '已识别登录成功', scanning: '正在确认登录', expired: '二维码已失效', failed: '登录失败', stopped: 'NapCat 未运行' })[value] || '正在检测' }
+function loginLabel (value) { return ({ unknown: '暂时无法确认', 'login-required': '等待扫码', 'logged-in': '已登录', scanning: '正在确认登录', expired: '二维码已失效', failed: '登录失败', stopped: 'NapCat 未运行' })[value] || '正在检测' }
 function formatTime (value) { return new Date(value).toLocaleString() }
 async function read (path) {
   const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', signal: abort.signal })
@@ -296,6 +325,18 @@ async function openLogs (id) {
   } catch (err) {
     if (request === logRequest && err.name !== 'AbortError') logsError.value = err.message
   } finally { if (request === logRequest) logsLoading.value = false }
+}
+async function copyToken () {
+  if (tokenLoading.value) return
+  tokenLoading.value = true; tokenFeedback.value = ''
+  try {
+    const data = await (await read('/service-monitor/napcat-token')).json()
+    if (!data.token) throw new Error(data.message || '本次启动的日志中未找到 WebUI token。')
+    try { await navigator.clipboard.writeText(data.token) } catch { throw new Error('无法写入剪切板，请允许浏览器的剪切板权限后重试。') }
+    tokenFeedback.value = 'WebUI token 已复制到剪切板。'
+  } catch (err) {
+    if (err.name !== 'AbortError') tokenFeedback.value = err.message
+  } finally { tokenLoading.value = false }
 }
 function closeLogin () { clearTimeout(qrExpiryTimer); showLogin.value = false; loginData.value = null; loginRequest++; loginLoading.value = false }
 function openLogin () {
@@ -343,7 +384,8 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(qrExpiryTimer); abort.abo
 .service-group { margin-top: 1.8rem; }
 .group-title { font-size: 1rem; font-weight: 600; margin-bottom: .8rem; }
 .group-title span { color: var(--site-muted); font-size: .75rem; margin-left: .3rem; }
-.service-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1rem; }
+.service-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1rem; align-items: start; }
+.service-tile { min-width: 0; }
 .service-card { display: flex; flex-direction: column; padding: 1.2rem; min-width: 0; border: 1px solid var(--site-line); border-radius: 16px; background: var(--site-surface); backdrop-filter: blur(12px); box-shadow: 0 8px 32px rgb(31 38 135 / 12%); }
 .service-card-heading { display: flex; align-items: center; gap: .7rem; margin-bottom: 1.1rem; }
 .service-icon { width: 44px; height: 44px; flex: 0 0 auto; display: grid; place-items: center; background: rgb(37 99 235 / 12%); color: var(--site-accent); border-radius: 12px; font-size: .9rem; font-weight: 700; }
@@ -369,7 +411,7 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(qrExpiryTimer); abort.abo
 .service-alert { padding: 1rem; border-radius: 12px; background: #ffe8ce; color: #754406; }
 .service-empty { padding: 2rem; text-align: center; }
 .business-log { max-height: 60vh; overflow: auto; border-radius: 12px; padding: 1rem; background: var(--site-solid); color: var(--text-color); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; }
-.qq-login-content { display: flex; align-items: center; gap: 1.7rem; }
+.qq-login-content { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
 .qq-qr { display: flex; flex-direction: column; gap: .7rem; text-align: center; font-size: .75rem; }
 .qq-qr img { width: 210px; height: 210px; background: white; padding: 12px; border-radius: 12px; image-rendering: pixelated; box-sizing: content-box; }
 :deep(.qq-login-section), :deep(.business-log-section) { margin-top: 1.6rem; }

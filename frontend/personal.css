@@ -12,7 +12,7 @@
     --body-bg-color: transparent;
     --section-bg-color: var(--site-surface);
     --section-header-bg-color: transparent;
-    --header-bg-color: var(--site-surface);
+    --header-bg-color: rgb(255 255 255 / 96%);
     --header-fg-color: var(--text-color);
     --header-hover-text-color: var(--text-color);
     --sidebar-bg-color: var(--site-surface);
@@ -38,6 +38,7 @@
     --site-line: rgb(255 255 255 / 16%);
     --site-overlay: rgb(0 0 0 / 50%);
     --text-color: #eef3fb;
+    --header-bg-color: rgb(21 29 44 / 96%);
   }
 
   body {
@@ -78,7 +79,7 @@
     box-sizing: border-box;
     max-width: 1240px;
     margin: auto;
-    padding: 1.4rem;
+    padding: calc(var(--picocrank-fixed-header-offset, 4rem) + 1.4rem) 1.4rem 1.4rem;
   }
 
   section.with-header-and-content {
@@ -175,7 +176,7 @@
 
   @media (width <= 640px) {
     #content main {
-    padding: .85rem;
+    padding: calc(var(--picocrank-fixed-header-offset, 4rem) + .85rem) .85rem .85rem;
   }
 
     .personal-site-link {
@@ -214,4 +215,8 @@
   #content section.personal-login {
     margin-top: 5vh;
   }
+}
+
+#content section, #content article {
+  scroll-margin-top: calc(var(--picocrank-fixed-header-offset, 4rem) + 1rem);
 }

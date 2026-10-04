@@ -161,6 +161,18 @@
           >
             二维码展示截止：{{ formatTime(loginData.qrExpiresAt) }}
           </p>
+          <p
+            v-if="loginData?.checkedAt"
+            class="service-note"
+          >
+            最近检测：{{ formatTime(loginData.checkedAt) }}
+          </p>
+          <p
+            v-if="loginData?.containerStartedAt"
+            class="service-note"
+          >
+            本次容器启动：{{ formatTime(loginData.containerStartedAt) }}
+          </p>
           <p class="service-note">
             每 10 秒检测。QQ 登录事件不等同于 OneBot 连接或 AstrBot 消息处理状态。
           </p>

@@ -41,6 +41,7 @@ class ServiceBoundaryTests(unittest.TestCase):
         with patch.object(services, 'run', return_value=f'12 {int(at)}') as stat, \
                 patch.object(services.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'\x89PNG\r\n\x1a\nDATA')) as image:
             result = services.attach_qr(info(), '2026-10-04T07:00:00Z', at + 10)
+            self.assertAlmostEqual(services.epoch('2026-10-04T07:01:00.123456789Z'), at + .123456, places=5)
             self.assertTrue(result['qrImage'].startswith('data:image/png;base64,'))
             self.assertEqual(image.call_args.args[0][-1], services.QR_PATH)
             image.reset_mock()

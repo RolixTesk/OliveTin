@@ -105,6 +105,8 @@ def qq_login(text):
 
 
 def epoch(value):
+    # Docker uses nanoseconds; Python 3.10 accepts microseconds only.
+    value = re.sub(r'(\.\d{6})\d+', r'\1', value)
     return datetime.datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp()
 
 

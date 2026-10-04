@@ -13,6 +13,8 @@
     --section-bg-color: var(--site-surface);
     --section-header-bg-color: transparent;
     --header-bg-color: var(--site-surface);
+    --header-fg-color: var(--text-color);
+    --header-hover-text-color: var(--text-color);
     --sidebar-bg-color: var(--site-surface);
     --standout-bg-color: var(--site-solid);
     --border-color: var(--site-line);
@@ -44,7 +46,7 @@
     color: var(--text-color);
   }
 
-  #app {
+  .layout-fixed-header {
     min-height: 100svh;
     background: var(--site-overlay);
   }
@@ -57,6 +59,7 @@
     font-size: 1.05rem;
     font-weight: 650;
     letter-spacing: -.02em;
+    white-space: nowrap;
   }
 
   .personal-site-link {
@@ -71,6 +74,8 @@
   }
 
   #content main {
+    width: 100%;
+    box-sizing: border-box;
     max-width: 1240px;
     margin: auto;
     padding: 1.4rem;
@@ -195,5 +200,18 @@
     animation-duration: .01ms !important;
     transition-duration: .01ms !important;
   }
+  }
+}
+
+/* The login view and legacy small-section rule are unlayered. */
+#content section.personal-login {
+  max-width: 410px;
+  margin: 8vh auto 0;
+  border-radius: 16px;
+}
+
+@media (width <= 640px) {
+  #content section.personal-login {
+    margin-top: 5vh;
   }
 }

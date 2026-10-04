@@ -4,6 +4,7 @@
       :title="pageTitle"
       :logo-url="logoUrl"
       :breadcrumbs="false"
+      :theme-toggle-enabled="true"
       :sidebar-enabled="sidebarEnabled"
       :top-bar-enabled="topbarEnabled"
       :navigation="navigation"

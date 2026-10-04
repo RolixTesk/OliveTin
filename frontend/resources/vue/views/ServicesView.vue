@@ -265,7 +265,12 @@ async function refresh () {
 }
 async function loadActions () {
   const ids = services.value.flatMap(service => service.actions || []).filter(id => !actions.value[id])
-  await Promise.all(ids.map(async id => { const response = await window.client.getActionBinding({ bindingId: id }); if (response.action) actions.value[id] = response.action }))
+  await Promise.all(ids.map(async id => {
+    const response = await window.client.getActionBinding({ bindingId: id }); if (response.action) {
+      response.action.title = ({ start: '启动', stop: '停止', restart: '重启', check: '配置检查', reload: '重载配置' })[id.split('-').pop()] || response.action.title
+      actions.value[id] = response.action
+    }
+  }))
 }
 function actionsFor (service) { return (service.actions || []).map(id => actions.value[id]).filter(Boolean) }
 async function openLogs (id) {
@@ -339,6 +344,7 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(qrExpiryTimer); abort.abo
 .state-badge[data-state="failed"] { color: #a62438; background: #ffe0e5; }
 .service-card dl { display: grid; grid-template-columns: auto 1fr; gap: .55rem .8rem; font-size: .78rem; margin: 0; }
 .service-card dt { color: var(--site-muted); }
+.service-card dt, .service-card dd { padding: 0; border: 0; text-align: left; }
 .service-card dd { margin: 0; overflow-wrap: anywhere; }
 .service-note { color: var(--site-muted); font-size: .75rem; line-height: 1.6; }
 .service-utilities { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; margin-top: auto; padding-top: 1rem; }
@@ -346,7 +352,8 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(qrExpiryTimer); abort.abo
 .service-utilities a { margin-left: auto; }
 .service-actions { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--site-line); }
 .service-actions :deep(button) { font-size: .68rem; padding: .4rem .55rem; min-height: 30px; }
-.service-actions :deep(.icon) { display: none; }
+.service-actions :deep(.icon), .service-actions :deep(.navigate-on-start-container) { display: none; }
+.services-view .service-actions :deep(.action-button button) { background: var(--site-card); color: var(--text-color); border: 1px solid var(--site-line); box-shadow: none; }
 .service-alert { padding: 1rem; border-radius: 12px; background: #ffe8ce; color: #754406; }
 .service-empty { padding: 2rem; text-align: center; }
 .business-log { max-height: 60vh; overflow: auto; border-radius: 12px; padding: 1rem; background: var(--site-solid); color: var(--text-color); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; }

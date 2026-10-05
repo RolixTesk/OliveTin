@@ -10,7 +10,15 @@
       </RouterLink>
     </div>
     <div class="system-toolbar">
-      <div><span class="system-source"><i />阿里云云监控</span><p>{{ sourceInfo }}</p></div>
+      <div>
+        <span class="system-source"><i />阿里云云监控</span><p>{{ sourceInfo }}</p>
+        <p
+          class="system-update"
+          aria-live="polite"
+        >
+          {{ loading ? '正在读取官方监控历史…' : `每分钟更新 · ${collectedAt ? `查询于 ${new Date(collectedAt).toLocaleString()}` : '等待首次查询'}` }}
+        </p>
+      </div>
       <div class="system-controls">
         <div
           class="system-ranges"
@@ -37,12 +45,6 @@
         </button>
       </div>
     </div>
-    <p
-      class="system-update"
-      aria-live="polite"
-    >
-      {{ loading ? '正在读取官方监控历史…' : `每分钟更新 · ${collectedAt ? `查询于 ${new Date(collectedAt).toLocaleString()}` : '等待首次查询'}` }}
-    </p>
     <p
       v-if="error"
       class="service-alert"

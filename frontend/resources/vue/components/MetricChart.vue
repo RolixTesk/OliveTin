@@ -108,6 +108,7 @@ function render () {
       type: 'value',
       min: 0,
       max: props.unit === '%' ? 100 : undefined,
+      interval: props.unit === '%' ? 25 : undefined,
       splitNumber: 3,
       axisLabel: { color: muted, fontSize: 11, formatter: value => props.unit === '%' ? `${value}%` : formatMetric(value, props.unit) },
       splitLine: { lineStyle: { color: dark ? '#ffffff14' : '#64748b22', type: 'dashed' } }

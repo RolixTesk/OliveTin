@@ -26,9 +26,11 @@ type sample struct {
 }
 
 type monitor struct {
-	cfg    *config.Config
-	sample sample
-	mutex  sync.RWMutex
+	cfg         *config.Config
+	system      map[string]systemSample
+	sample      sample
+	mutex       sync.RWMutex
+	systemMutex sync.Mutex
 }
 
 func NewHandler(cfg *config.Config) http.Handler {
@@ -151,15 +153,20 @@ func (m *monitor) serveRead(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(m.sample)
 		return
 	}
-	if r.URL.Path == "/service-monitor/napcat-login" {
+	m.serveDetails(w, r)
+}
+
+func (m *monitor) serveDetails(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/service-monitor/napcat-login":
 		m.serveNapcat(w, r, "login")
-		return
-	}
-	if r.URL.Path == "/service-monitor/napcat-token" {
+	case "/service-monitor/napcat-token":
 		m.serveNapcat(w, r, "token")
-		return
+	case "/service-monitor/system":
+		m.serveSystem(w, r)
+	default:
+		m.serveLogPath(w, r)
 	}
-	m.serveLogPath(w, r)
 }
 
 func (m *monitor) serveLogPath(w http.ResponseWriter, r *http.Request) {

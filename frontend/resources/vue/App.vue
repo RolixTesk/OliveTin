@@ -416,6 +416,7 @@ function addSystemNavLinks () {
 
   if (showDiagnostics.value && !loginRequired.value && window.initResponse?.additionalLinks?.some(link => link.url === '/services')) {
     systemLinks.push({ routeName: 'Services', title: '服务监控' })
+    systemLinks.push({ routeName: 'System', title: '系统监控' })
   }
 
   systemLinks.push({

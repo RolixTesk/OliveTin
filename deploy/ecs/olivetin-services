@@ -1,14 +1,21 @@
 #!/usr/bin/python3
 """Fixed ECS service operations. Install root-owned; called through restricted sudo."""
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import datetime
 import fcntl
+import importlib.machinery
+import importlib.util
 import json
+import math
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 
 SERVICES = {
     'astrbot': ('AstrBot', 'unit', 'astrbot.service', [6185, 6199]),
@@ -358,9 +365,114 @@ def mutate(verb, service_id):
     return run(args, timeout=55)
 
 
+SYSTEM_RANGES = {'1h': (3600, 60), '6h': (21600, 300), '24h': (86400, 900)}
+SYSTEM_METRICS = {
+    'cpu': ('cpu_total', '%'), 'memory': ('memory_usedutilization', '%'),
+    'disk': ('diskusage_utilization', '%'), 'load1': ('load_1m', ''),
+    'load5': ('load_5m', ''), 'networkIn': ('networkin_rate', 'bit/s'),
+    'networkOut': ('networkout_rate', 'bit/s'),
+}
+
+
+def cloud_client():
+    loader = importlib.machinery.SourceFileLoader('olivetin_cloud', '/usr/local/libexec/olivetin-dns')
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    client = importlib.util.module_from_spec(spec)
+    loader.exec_module(client)
+    return client
+
+
+def ecs_metadata(name):
+    with urllib.request.urlopen('http://100.100.100.200/latest/meta-data/' + name, timeout=3) as response:
+        value = response.read(128).decode().strip()
+    if not re.fullmatch(r'[a-z0-9-]+', value):
+        raise ValueError('Invalid ECS metadata')
+    return value
+
+
+def metric_points(client, credentials, command):
+    points, token = [], ''
+    # At most three pages for the fixed <=24-hour windows; never return a silently truncated graph.
+    for _ in range(3):
+        result = client.call_cli(credentials, command + (' --NextToken ' + shlex.quote(token) if token else ''))
+        if result.get('Success') is not True:
+            raise RuntimeError('Cloud monitoring query failed')
+        page = result.get('Datapoints', [])
+        points.extend(json.loads(page) if isinstance(page, str) else page)
+        token = result.get('NextToken', '')
+        if not token:
+            return points
+    raise RuntimeError('Cloud monitoring query exceeds page limit')
+
+
+def normalize_metric(points, instance, start, end, unit):
+    groups = {}
+    for point in points:
+        if point.get('instanceId') != instance:
+            continue
+        stamp, value = point.get('timestamp'), point.get('Average')
+        if isinstance(stamp, bool) or isinstance(value, bool):
+            continue
+        if not isinstance(stamp, (int, float)) or not isinstance(value, (int, float)):
+            continue
+        if not math.isfinite(stamp) or not math.isfinite(value) or not start < stamp <= end:
+            continue
+        if value < 0 or (unit == '%' and value > 100):
+            continue
+        device = str(point.get('device', ''))
+        group = groups.setdefault(device, {'device': device, 'name': str(point.get('diskname') or device), 'points': {}})
+        group['points'][int(stamp)] = value
+    return [{'device': group['device'], 'name': group['name'],
+             'points': sorted(group['points'].items())} for _, group in sorted(groups.items())]
+
+
+def read_metric(client, credentials, instance, region, start, end, period, key):
+    metric, unit = SYSTEM_METRICS[key]
+    dimensions = shlex.quote(json.dumps([{'instanceId': instance}], separators=(',', ':')))
+    command = (f'aliyun cms DescribeMetricList --region {region} --Namespace acs_ecs_dashboard '
+               f'--MetricName {metric} --Period {period} --StartTime {start} --EndTime {end} --Dimensions {dimensions}')
+    points = metric_points(client, credentials, command)
+    return {'metric': metric, 'unit': unit, 'series': normalize_metric(points, instance, start, end, unit)}
+
+
+def system_history(window):
+    if window not in SYSTEM_RANGES:
+        raise ValueError('Unknown monitoring range')
+    seconds, period = SYSTEM_RANGES[window]
+    instance, region = ecs_metadata('instance-id'), ecs_metadata('region-id')
+    end = int(time.time() * 1000)
+    start = end - seconds * 1000
+    client = cloud_client()
+    credentials = json.loads(client.CREDENTIALS.read_text())
+    try:
+        cpu = read_metric(client, credentials, instance, region, start, end, period, 'cpu')
+    except urllib.error.HTTPError as error:
+        if error.code != 401:
+            raise
+        # Share the existing root-only OAuth grant; refresh only when its access token expires.
+        with open('/run/lock/olivetin-cloud-oauth.lock', 'w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            credentials = client.refresh_credentials()
+        cpu = read_metric(client, credentials, instance, region, start, end, period, 'cpu')
+    metrics = {'cpu': cpu}
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        tasks = {key: pool.submit(read_metric, client, credentials, instance, region, start, end, period, key)
+                 for key in SYSTEM_METRICS if key != 'cpu'}
+        for key, task in tasks.items():
+            try:
+                metrics[key] = task.result()
+            except (OSError, RuntimeError, ValueError):
+                metrics[key] = {'series': [], 'error': 'CloudMonitor metric unavailable'}
+    return {'source': 'Alibaba CloudMonitor', 'instanceId': instance, 'region': region,
+            'range': window, 'period': period, 'startTime': start, 'endTime': end, 'metrics': metrics}
+
+
 def main(args):
     if args == ['snapshot']:
         snapshot()
+        return
+    if len(args) == 2 and args[0] == 'system':
+        print(json.dumps(system_history(args[1]), ensure_ascii=False, allow_nan=False))
         return
     if len(args) != 2 or args[1] not in SERVICES:
         raise ValueError('Unknown operation or service')

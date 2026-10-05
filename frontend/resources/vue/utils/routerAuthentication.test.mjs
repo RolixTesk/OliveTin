@@ -24,7 +24,7 @@ function loadRouter () {
       return { beforeEach: guard => guards.push(guard) }
     }
   })
-  return { window, services: routes.find(route => route.name === 'Services'), guard: guards.at(-1) }
+  return { window, services: routes.find(route => route.name === 'Services'), system: routes.find(route => route.name === 'System'), guard: guards.at(-1) }
 }
 
 test('services navigation follows Init identity through login and logout', () => {
@@ -39,4 +39,15 @@ test('services navigation follows Init identity through login and logout', () =>
   assert.equal(guard(services), '/login')
   window.initResponse = undefined
   assert.equal(guard(services), '/login')
+})
+
+
+test('system history page follows the authenticated identity', () => {
+  const { window, system, guard } = loadRouter()
+  window.initResponse = { loginRequired: true, authenticatedUser: 'guest' }
+  assert.equal(guard(system), '/login')
+  window.initResponse = { loginRequired: false, authenticatedUser: 'admin' }
+  assert.equal(guard(system), undefined)
+  window.initResponse = { loginRequired: false, authenticatedUser: 'guest' }
+  assert.equal(guard(system), '/login')
 })

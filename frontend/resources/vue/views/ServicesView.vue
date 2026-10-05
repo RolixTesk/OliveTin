@@ -10,6 +10,12 @@
         {{ loading ? '更新中…' : '刷新状态' }}
       </button>
     </div>
+    <RouterLink
+      class="system-service-link services-system-link"
+      to="/system"
+    >
+      系统监控 · CPU / 内存 / 硬盘 ↗
+    </RouterLink>
     <div
       class="services-overview"
       role="status"

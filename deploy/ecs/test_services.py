@@ -139,5 +139,42 @@ class ServiceBoundaryTests(unittest.TestCase):
         self.assertTrue(cleaned.endswith('日志'))
 
 
+class SystemMonitorTests(unittest.TestCase):
+    def test_fixed_range_before_any_cloud_access(self):
+        with patch.object(services, 'cloud_client') as cloud:
+            for window in ['../../etc/shadow', '7d', '1h --MetricName other']:
+                with self.assertRaises(ValueError):
+                    services.main(['system', window])
+            cloud.assert_not_called()
+
+    def test_metric_normalization_and_dimensions(self):
+        points = [{'instanceId': 'i-test', 'timestamp': 2000, 'Average': 49.9,
+                   'device': '/dev/vda3', 'diskname': '/', 'userId': 'private', 'IP': 'private'},
+                  {'instanceId': 'i-test', 'timestamp': 1000, 'Average': 50, 'device': '/dev/vda3', 'diskname': '/'},
+                  {'instanceId': 'other', 'timestamp': 3000, 'Average': 1},
+                  {'instanceId': 'i-test', 'timestamp': 3000, 'Average': None},
+                  {'instanceId': 'i-test', 'timestamp': 3000, 'Average': float('nan')},
+                  {'instanceId': 'i-test', 'timestamp': 3000, 'Average': 101},
+                  {'instanceId': 'i-test', 'timestamp': 3000, 'Average': False},
+                  {'instanceId': 'i-test', 'timestamp': 5000, 'Average': 4}]
+        result = services.normalize_metric(points, 'i-test', 0, 4000, '%')
+        self.assertEqual(result, [{'device': '/dev/vda3', 'name': '/', 'points': [(1000, 50), (2000, 49.9)]}])
+        self.assertNotIn('private', json.dumps(result))
+        self.assertEqual(services.normalize_metric([], 'i-test', 0, 4000, '%'), [])
+
+    def test_pagination_and_refuse_silent_truncation(self):
+        from unittest.mock import Mock
+        client = Mock()
+        client.call_cli.side_effect = [
+            {'Success': True, 'Datapoints': '[{"timestamp":1}]', 'NextToken': 'cursor'},
+            {'Success': True, 'Datapoints': '[{"timestamp":2}]'}]
+        self.assertEqual(services.metric_points(client, {}, 'fixed command'), [{'timestamp': 1}, {'timestamp': 2}])
+        self.assertIn('--NextToken cursor', client.call_cli.call_args[0][1])
+        client.call_cli.side_effect = None
+        client.call_cli.return_value = {'Success': True, 'Datapoints': '[]', 'NextToken': 'cursor'}
+        with self.assertRaises(RuntimeError):
+            services.metric_points(client, {}, 'fixed command')
+
+
 if __name__ == '__main__':
     unittest.main()

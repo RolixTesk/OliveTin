@@ -1,5 +1,17 @@
 # Service monitoring
 
+## System history
+
+An authenticated system page provides CPU, memory and filesystem utilization line charts from the already installed Alibaba Cloud monitoring agent and the official monitoring history API. It also shows one-minute/five-minute system load and per-interface receive/send rates. It does not install another monitoring daemon or create cloud identities or credentials.
+
+Cloud queries are read-only, limited to this ECS instance, fixed metrics and three supported windows: one hour at one-minute intervals, six hours at five-minute intervals and twenty-four hours at fifteen-minute intervals. Responses contain normalized numeric samples and necessary device labels, excluding raw account identifiers, hostnames, IP addresses and credentials. Pagination must complete within bounded limits or fail explicitly. Network interfaces are selected individually rather than summed together.
+
+Authenticated management access is required even when requesting historical data directly. Unsupported ranges and additional query parameters are rejected before collection. Each window shares a one-minute in-memory cache; no system-history queries run without page requests. Failed queries retain successful cached history with an explicit stale warning. Missing individual metrics remain unavailable; missing samples appear as gaps rather than zero or interpolated lines. Latest source timestamps and delayed data remain visible. Statistics describe the returned period averages, including the peak among those averages.
+
+The system page uses the personal site's locally bundled background, shared glass surfaces, light/dark preference and responsive layout. Time, filesystem and interface controls remain keyboard accessible, and charts have text summaries. Chart dependencies are bundled locally rather than loaded from external scripts. Navigation and the services page link to the system page.
+
+## Service snapshots and logs
+
 Service monitoring is optional and disabled unless explicitly enabled by the administrator. It samples the configured, administrator-controlled collector periodically, independently of browser visits. A failed sample preserves the last successful data and timestamp and visibly marks it as stale. Collection has time and output limits.
 
 Only authenticated users belonging to an explicitly allowed access list can read snapshots or business logs. Guest users and authenticated users without this permission cannot access these endpoints. All monitoring endpoints are read-only and responses must not be cached.

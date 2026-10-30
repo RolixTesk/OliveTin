@@ -39,3 +39,11 @@ Login detection classifies startup, WebUI, QR, login and post-login message stru
 When the requested login or WebUI information is absent, logs are read backwards in successive 200-line extensions of the tail window, inspecting only newly retrieved earlier timestamped records, bounded by the current container start. Search stops once the required structure/event is found or the available history is exhausted. A request time limit preserves responsiveness; missing or incomplete evidence remains unknown and may be retried. QR scan confirmation can look further back for its related QR event without replacing the newer login state.
 
 An explicit button retrieves the current WebUI token from its own WebUI log structure and copies it to the browser clipboard. This read-only endpoint uses the same authenticated access list, fixed NapCat target and uncached JSON policy. This is the only intentional credential response; snapshots and ordinary logs continue to redact credentials. The UI shows only copy success/failure, never the token, and does not persist it or include it in action records. A stopped container cannot return a previous token.
+
+## Autostart controls
+
+Administrators can enable or disable autostart for explicitly supported business services through the existing authorized actions. These actions do not start, stop or restart a service. Infrastructure services remain read-only. Unsupported unit states or unconfirmed container configuration mappings do not offer policy controls.
+
+A container's enabled policy means automatic recovery, including when the container is currently stopped, on the next container engine start. The existing policy that excludes manually stopped containers remains visibly distinct until explicitly changed. Both the runtime policy and the persistent deployment configuration must agree; changes preserve all other deployment settings and roll back together on failure. Partial rollback is an explicit failure requiring operator attention.
+
+Buttons share per-service concurrency and lock constraints with normal controls. Pending operations disable that service's controls. Completion refreshes the collected status; failed operations retain the last available status with an explicit error and execution record. Boot policy and current runtime state are displayed separately.

@@ -8,6 +8,8 @@ import importlib.machinery
 import importlib.util
 import json
 import math
+import os
+import tempfile
 from pathlib import Path
 import re
 import shlex
@@ -19,12 +21,13 @@ import urllib.request
 
 SERVICES = {
     'astrbot': ('AstrBot', 'unit', 'astrbot.service', [6185, 6199]),
+    'cliproxyapi': ('CLIProxyAPI', 'unit', 'cliproxyapi.service', [8317]),
     'napcat': ('NapCat / QQ', 'container', 'napcat', [6099]),
     'couchdb': ('Obsidian CouchDB', 'container', 'obsidian-couchdb', [5984]),
     'stalwart': ('Stalwart Mail', 'container', 'stalwart', [25, 587, 465, 993]),
     'roundcube': ('Roundcube Webmail', 'container', 'roundcube', []),
     'hoyopanel': ('HoyoPanel', 'unit', 'hoyopanel.service', []),
-    'clash': ('Clash / Mihomo', 'process', 'mihomo', [9090]),
+    'clash': ('Clash / Mihomo', 'unit', 'mihomo.service', [7890, 9090]),
     'nginx': ('Nginx', 'unit', 'nginx.service', [80, 443]),
     'docker': ('Docker', 'unit', 'docker.service', []),
     'wireguard': ('WireGuard', 'unit', 'wg-quick@wg0.service', []),
@@ -34,7 +37,8 @@ URLS = {s: f'https://{host}.rolixtesk.top/' for s, host in {
     'stalwart': 'mail', 'roundcube': 'webmail', 'clash': 'clash',
 }.items()}
 URLS['hoyopanel'] = 'https://rolixtesk.top/hoyopanel/'
-MUTABLE = {'astrbot', 'napcat', 'couchdb', 'stalwart', 'roundcube', 'hoyopanel', 'clash'}
+URLS['cliproxyapi'] = 'http://10.66.0.1:8317/management.html'
+MUTABLE = {'cliproxyapi', 'astrbot', 'napcat', 'couchdb', 'stalwart', 'roundcube', 'hoyopanel', 'clash'}
 ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'HOME': '/root'}
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
 SECRET = re.compile(r'''(?i)((?:["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|passwd|authorization|cookie)["']?)\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;&]+)''')
@@ -293,11 +297,15 @@ def service_state(service_id):
                     enabled='未配置已确认的自启动', health='unconfigured')
     if ports:
         item['details']['本机端口'] = ', '.join(f'{port}: {"监听" if listening(port) else "未监听"}' for port in ports)
+    if service_id == 'cliproxyapi':
+        item['details'].update({'版本': '8.0.15', 'API 地址': 'http://10.66.0.1:8317/v1', 'OAuth': 'Codex 已授权，服务器独立目录', 'AstrBot 模型': 'gpt-6-luna', 'AstrBot 提供商': 'cliproxyapi/gpt-6-luna', '管理面板版本': 'v1.25.3', '管理页面': 'http://10.66.0.1:8317/management.html', '配置文件': '/home/rolix/cliproxyapi/config.yaml', '上游代理': 'Mihomo 127.0.0.1:7890'})
+        item['note'] = '仅 WireGuard 隧道内访问；AstrBot 与个人设备使用独立 Key；官方管理面板已启用，使用独立管理密钥登录。'
     if service_id == 'nginx':
         item['actions'] = ['nginx-check', 'nginx-reload']
     if service_id == 'wireguard':
         item['details'].update(wireguard_state())
         item['note'] = '隧道停止会切断面板，修改通过 SSH 完成。'
+    autostart_actions(service_id, item)
     return item
 
 
@@ -350,7 +358,156 @@ def clash(verb):
                 '/bin/bash', '-ic', commands[verb]], timeout=35)
 
 
+COMPOSE_SERVICES = {
+    'napcat': ('/home/rolix/onebot_qq/napcat/docker-compose.yml', 'napcat'),
+    'couchdb': ('/home/rolix/obsidian-livesync/docker-compose.yml', 'couchdb'),
+    'stalwart': ('/opt/stalwart/compose.yml', 'stalwart'),
+    'roundcube': ('/opt/roundcube/compose.yml', 'roundcube'),
+}
+AUTOSTART_BACKUPS = Path('/opt/olivetin/backups/autostart')
+
+
+class AutostartError(RuntimeError):
+    pass
+
+
+def restart_match(text, service):
+    # These four deployed files use two-space service keys; reject ambiguous YAML.
+    roots = list(re.finditer(r'(?m)^services:[ \t]*(?:#.*)?$', text))
+    if len(roots) != 1:
+        raise AutostartError('Compose services 块缺失或重复；请通过 SSH 核对。')
+    root_start = roots[0].end()
+    boundary = re.search(r'(?m)^(?!#)\S', text[root_start:])
+    root_end = root_start + boundary.start() if boundary else len(text)
+    headers = list(re.finditer(r'(?m)^  ' + re.escape(service) + r':[ \t]*(?:#.*)?$', text[root_start:root_end]))
+    if len(headers) != 1:
+        raise AutostartError('Compose 服务块缺失或重复；请通过 SSH 核对。')
+    start = root_start + headers[0].end()
+    boundary = re.search(r'(?m)^  (?!#)\S', text[start:root_end])
+    end = start + boundary.start() if boundary else root_end
+    fields = list(re.finditer(r'''(?m)^    restart:[ \t]*(?:"(no|always|unless-stopped|on-failure(?::\d+)?)"|'(no|always|unless-stopped|on-failure(?::\d+)?)'|(no|always|unless-stopped|on-failure(?::\d+)?))([ \t]*(?:#.*)?)$''', text[start:end]))
+    if len(fields) != 1 or len(re.findall(r'(?m)^    restart:', text[start:end])) != 1:
+        raise AutostartError('Compose restart 字段缺失、重复或不受支持；请通过 SSH 核对。')
+    match = fields[0]
+    return start + match.start(), start + match.end(), next(x for x in match.groups()[:3] if x), match[4]
+
+
+def replace_restart(text, service, policy):
+    start, end, _, suffix = restart_match(text, service)
+    return text[:start] + f'    restart: "{policy}"' + suffix + text[end:]
+
+
+def write_atomic(path, data, metadata):
+    descriptor, temporary = tempfile.mkstemp(prefix='.olivetin-', dir=path.parent)
+    try:
+        with os.fdopen(descriptor, 'wb') as file:
+            file.write(data)
+            file.flush()
+            os.fsync(file.fileno())
+            os.fchmod(file.fileno(), metadata.st_mode & 0o777)
+            os.fchown(file.fileno(), metadata.st_uid, metadata.st_gid)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def compose_autostart(service_id, policy):
+    path, service = COMPOSE_SERVICES[service_id]
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise AutostartError('Compose 固定路径不可用；请通过 SSH 核对。')
+    original, metadata = path.read_bytes(), path.stat()
+    old = container_info(SERVICES[service_id][2])['restart']
+    if restart_match(original.decode(), service)[2] != old:
+        raise AutostartError('容器与 Compose 自启动策略不一致；未修改，请通过 SSH 核对。')
+    updated = replace_restart(original.decode(), service, policy).encode()
+    descriptor, staged = tempfile.mkstemp(prefix='.olivetin-check-', suffix='.yml', dir=path.parent)
+    try:
+        with os.fdopen(descriptor, 'wb') as file:
+            file.write(updated)
+        args = ['/usr/bin/docker', 'compose', '--project-directory', str(path.parent), '-f']
+        before = json.loads(run(args + [str(path), 'config', '--format', 'json']))
+        after = json.loads(run(args + [staged, 'config', '--format', 'json']))
+        if after['services'][service]['restart'] != policy or before['services'][service]['restart'] != old:
+            raise AutostartError('Compose 策略验证失败；未修改。')
+        after['services'][service]['restart'] = old
+        if before != after:
+            raise AutostartError('Compose 验证发现其他配置变化；未修改。')
+    finally:
+        Path(staged).unlink(missing_ok=True)
+    AUTOSTART_BACKUPS.mkdir(mode=0o700, parents=True, exist_ok=True)
+    backup = Path(tempfile.mkdtemp(prefix=service_id + '-', dir=AUTOSTART_BACKUPS))
+    (backup / 'compose.yml').write_bytes(original)
+    (backup / 'restart.txt').write_text(old + '\n')
+    if path.read_bytes() != original:
+        raise AutostartError('Compose 在操作期间已变化；未修改。')
+    target = SERVICES[service_id][2]
+    try:
+        write_atomic(path, updated, metadata)
+        run(['/usr/bin/docker', 'update', '--restart=' + policy, target])
+        if container_info(target)['restart'] != policy:
+            raise AutostartError('运行策略未生效。')
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+        try:
+            write_atomic(path, original, metadata)
+            run(['/usr/bin/docker', 'update', '--restart=' + old, target])
+            if container_info(target)['restart'] != old:
+                raise RuntimeError('Rollback verification failed')
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+            raise AutostartError('自启动修改失败，回滚未完成；请通过 SSH 核对容器与 Compose。') from None
+        raise AutostartError('自启动修改失败，容器与 Compose 已恢复原策略。') from None
+    return f'自启动策略已保存为 {policy}；当前运行状态未改变。'
+
+
+def autostart(verb, service_id):
+    if service_id not in MUTABLE:
+        raise ValueError('Operation not allowed')
+    enabled = verb == 'enable-autostart'
+    _, kind, target, _ = SERVICES[service_id]
+    if kind == 'container':
+        if service_id not in COMPOSE_SERVICES:
+            raise AutostartError('未配置固定 Compose 映射，不支持自启动管理。')
+        return compose_autostart(service_id, 'always' if enabled else 'no')
+    old = unit_info(target)['enabled']
+    if old not in ('enabled', 'disabled'):
+        raise AutostartError('该单元的自启动状态不支持直接切换：' + old)
+    try:
+        run(['/usr/bin/systemctl', 'enable' if enabled else 'disable', target])
+        if unit_info(target)['enabled'] != ('enabled' if enabled else 'disabled'):
+            raise AutostartError('单元自启动状态验证失败。')
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+        try:
+            run(['/usr/bin/systemctl', 'enable' if old == 'enabled' else 'disable', target])
+            if unit_info(target)['enabled'] != old:
+                raise RuntimeError('Rollback verification failed')
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+            raise AutostartError('自启动修改失败，回滚未完成；请通过 SSH 核对单元状态。') from None
+        raise AutostartError('自启动修改失败，已恢复原策略。') from None
+    return '自启动已' + ('开启' if enabled else '关闭') + '；当前运行状态未改变。'
+
+
+def autostart_actions(service_id, item):
+    if service_id not in MUTABLE:
+        return
+    if item['kind'] == 'container':
+        path, service = COMPOSE_SERVICES[service_id]
+        try:
+            policy = restart_match(Path(path).read_text(), service)[2]
+            item['details']['Compose 自启动'] = policy
+            if policy != item['enabled']:
+                raise AutostartError('容器与 Compose 策略不一致，请通过 SSH 核对。')
+        except (OSError, AutostartError):
+            item['details']['自启动管理'] = 'Compose 未确认或策略不一致，暂不可切换。'
+            return
+    elif item['enabled'] not in ('enabled', 'disabled'):
+        item['details']['自启动管理'] = '该单元状态不支持直接切换。'
+        return
+    item['actions'] += [service_id + '-' + verb for verb in ('enable-autostart', 'disable-autostart')]
+
+
 def mutate(verb, service_id):
+    if verb in ('enable-autostart', 'disable-autostart'):
+        return autostart(verb, service_id)
     if service_id == 'nginx' and verb in ('check', 'reload'):
         output = run(['/usr/sbin/nginx', '-t'])
         if verb == 'reload':
@@ -358,8 +515,6 @@ def mutate(verb, service_id):
         return output
     if service_id not in MUTABLE or verb not in ('start', 'stop', 'restart'):
         raise ValueError('Operation not allowed')
-    if service_id == 'clash':
-        return clash(verb)
     _, kind, target, _ = SERVICES[service_id]
     args = ['/usr/bin/docker', verb, target] if kind == 'container' else ['/usr/bin/systemctl', verb, target]
     return run(args, timeout=55)
@@ -498,6 +653,9 @@ def main(args):
 if __name__ == '__main__':
     try:
         main(sys.argv[1:])
+    except AutostartError as error:
+        print(str(error), file=sys.stderr)
+        sys.exit(1)
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
         print('Service operation failed; inspect the selected service through SSH.', file=sys.stderr)
         sys.exit(1)

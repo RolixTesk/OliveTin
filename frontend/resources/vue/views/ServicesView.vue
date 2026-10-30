@@ -24,11 +24,11 @@
       <span class="collection-time">每 10 秒更新 · {{ collectedAt || '等待采集' }}</span>
     </div>
     <p
-      v-if="error"
+      v-if="error || policyError"
       class="service-alert"
       role="alert"
     >
-      {{ error }}
+      {{ error || policyError }}
     </p>
     <p
       v-if="!services.length && !error"
@@ -65,7 +65,7 @@
               <span
                 class="state-badge"
                 :data-state="service.state"
-              >{{ stateLabel(service.state) }}</span>
+              >{{ stateLabel(service.state, service.enabled) }}</span>
             </div>
             <dl>
               <dt>自启动</dt><dd>{{ bootLabel(service.enabled) }}</dd><dt>健康检查</dt><dd>{{ healthLabel(service.health) }}</dd>
@@ -118,16 +118,24 @@
             >
               {{ tokenFeedback }}
             </p>
-            <div
+            <p
+              v-if="service.actions?.some(id => id.endsWith('-autostart'))"
+              class="service-note"
+            >
+              自启动开关不立即启停服务；容器开启后将在下次 Docker 启动时恢复。
+            </p>
+            <fieldset
               v-if="service.actions?.length"
               class="service-actions"
+              :aria-label="`${service.name} 服务操作`"
+              :disabled="serviceBusy(service)"
             >
               <ActionButton
                 v-for="action in actionsFor(service)"
                 :key="action.bindingId"
                 :action-data="action"
               />
-            </div>
+            </fieldset>
           </article>
           <div
             v-if="service.id === 'napcat'"
@@ -258,12 +266,14 @@
   </div>
 </template>
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { buttonResults } from '../stores/buttonResults.js'
 import Section from 'picocrank/vue/components/Section.vue'
 import ActionButton from '../ActionButton.vue'
 const services = ref([])
 const actions = ref({})
 const error = ref('')
+const policyError = ref('')
 const loading = ref(false)
 const collectedAt = ref('')
 const selectedService = ref('')
@@ -282,13 +292,13 @@ let qrExpiryTimer
 let logRequest = 0
 let loginRequest = 0
 const icons = { astrbot: '/personal/astrbot.svg', napcat: '/personal/napcat-logo.png', couchdb: '/personal/couchdb-logo.png', clash: '/personal/clash.ico' }
-const descriptions = { astrbot: 'AI 对话与消息处理', napcat: 'QQ 登录与 OneBot 接入', couchdb: 'Obsidian 数据同步', stalwart: '邮件接收与投递', roundcube: '浏览器中的邮件入口', hoyopanel: '个人业务与任务面板', clash: 'Mihomo 代理服务', nginx: '站点与 HTTPS 入口', docker: '容器运行环境', wireguard: '私有管理隧道' }
-const groups = [{ name: '机器人', ids: ['astrbot', 'napcat'] }, { name: '同步与邮件', ids: ['couchdb', 'stalwart', 'roundcube'] }, { name: '站点与网络', ids: ['hoyopanel', 'clash', 'nginx', 'docker', 'wireguard'] }]
+const descriptions = { cliproxyapi: 'Codex / OpenAI 兼容 API', astrbot: 'AI 对话与消息处理', napcat: 'QQ 登录与 OneBot 接入', couchdb: 'Obsidian 数据同步', stalwart: '邮件接收与投递', roundcube: '浏览器中的邮件入口', hoyopanel: '个人业务与任务面板', clash: 'Mihomo 代理服务', nginx: '站点与 HTTPS 入口', docker: '容器运行环境', wireguard: '私有管理隧道' }
+const groups = [{ name: '机器人', ids: ['astrbot', 'napcat', 'cliproxyapi'] }, { name: '同步与邮件', ids: ['couchdb', 'stalwart', 'roundcube'] }, { name: '站点与网络', ids: ['hoyopanel', 'clash', 'nginx', 'docker', 'wireguard'] }]
 const groupedServices = computed(() => groups.map(group => ({ name: group.name, items: services.value.filter(service => group.ids.includes(service.id)) })).filter(group => group.items.length))
 const runningCount = computed(() => services.value.filter(service => ['active', 'running'].includes(service.state)).length)
 const selectedServiceName = computed(() => services.value.find(service => service.id === selectedService.value)?.name || selectedService.value)
-function stateLabel (state) { return ({ active: '运行中', running: '运行中', stopped: '已停止', inactive: '已停止', exited: '已退出', failed: '故障', unknown: '未知' })[state] || state }
-function bootLabel (value) { return ({ enabled: '开机启动', 'unless-stopped': '自动恢复 · 主动停止除外', disabled: '未启用', unknown: '未知' })[value] || value }
+function stateLabel (state, enabled) { if (['stopped', 'inactive', 'exited'].includes(state) && ['no', 'disabled'].includes(enabled)) return '未启用'; return ({ active: '运行中', running: '运行中', stopped: '已停止', inactive: '已停止', exited: '已退出', failed: '故障', unknown: '未知' })[state] || state }
+function bootLabel (value) { return ({ enabled: '开机启动', always: '开机启动 · 自动恢复', masked: '已屏蔽', 'unless-stopped': '自动恢复 · 主动停止除外', disabled: '未启用', no: '未启用', unknown: '未知' })[value] || value }
 function healthLabel (value) { return ({ healthy: '健康', unhealthy: '异常', unconfigured: '未配置', success: '最近运行正常', 'collection-error': '采集失败' })[value] || value || '未配置' }
 function loginLabel (value) { return ({ unknown: '暂时无法确认', 'login-required': '等待扫码', 'logged-in': '已登录', scanning: '正在确认登录', expired: '二维码已失效', failed: '登录失败', stopped: 'NapCat 未运行' })[value] || '正在检测' }
 function formatTime (value) { return new Date(value).toLocaleString() }
@@ -319,11 +329,17 @@ async function loadActions () {
   const ids = services.value.flatMap(service => service.actions || []).filter(id => !actions.value[id])
   await Promise.all(ids.map(async id => {
     const response = await window.client.getActionBinding({ bindingId: id }); if (response.action) {
-      response.action.title = ({ start: '启动', stop: '停止', restart: '重启', check: '配置检查', reload: '重载配置' })[id.split('-').pop()] || response.action.title
+      response.action.title = actionTitle(id, response.action.title)
       actions.value[id] = response.action
     }
   }))
 }
+function actionTitle (id, fallback) {
+  if (id.endsWith('-enable-autostart')) return '开启自启动'
+  if (id.endsWith('-disable-autostart')) return '关闭自启动'
+  return ({ start: '启动', stop: '停止', restart: '重启', check: '配置检查', reload: '重载配置' })[id.split('-').pop()] || fallback
+}
+function serviceBusy (service) { return Object.values(buttonResults).some(entry => !entry.executionFinished && service.actions?.includes(entry.bindingId)) }
 function actionsFor (service) { return (service.actions || []).map(id => actions.value[id]).filter(Boolean) }
 async function openLogs (id) {
   const request = ++logRequest
@@ -373,6 +389,12 @@ async function refreshLogin () {
     if (request === loginRequest && err.name !== 'AbortError') { loginData.value = null; loginError.value = err.message }
   } finally { if (request === loginRequest) loginLoading.value = false }
 }
+watch(() => Object.values(buttonResults).filter(entry => entry.executionFinished && entry.bindingId?.endsWith('-autostart')).map(entry => entry.executionTrackingId).join(','), () => {
+  const entries = Object.values(buttonResults).filter(entry => entry.executionFinished && entry.bindingId?.endsWith('-autostart'))
+  const latest = entries.sort((a, b) => (Date.parse(b.datetimeFinished) || 0) - (Date.parse(a.datetimeFinished) || 0))[0]
+  policyError.value = latest && (latest.exitCode !== 0 || latest.blocked || latest.timedOut) ? '自启动操作失败；请查看执行记录。当前显示上次采集的状态。' : ''
+  refresh()
+}, { immediate: true })
 onMounted(() => {
   refresh()
   timer = setInterval(() => {
@@ -418,7 +440,7 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(qrExpiryTimer); abort.abo
 .service-utilities button, .service-utilities a { font-size: .75rem; }
 .service-utilities button { background: var(--site-card); border: 1px solid var(--site-line); }
 .service-utilities a { margin-left: auto; }
-.service-actions { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--site-line); }
+.service-actions { margin-inline: 0; border: 0; padding-inline: 0; min-inline-size: 0; display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--site-line); }
 .service-actions :deep(button) { font-size: .68rem; padding: .4rem .55rem; min-height: 30px; }
 .service-actions :deep(.icon), .service-actions :deep(.navigate-on-start-container) { display: none; }
 .services-view .service-actions :deep(.action-button button) { background: var(--site-card); color: var(--text-color); border: 1px solid var(--site-line); box-shadow: none; }

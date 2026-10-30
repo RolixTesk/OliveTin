@@ -9,7 +9,7 @@
       <span
         class="metric-status"
         :data-stale="stale"
-      >{{ error ? '查询失败' : !hasData ? '暂无数据' : stale ? '数据延迟' : '已更新' }}</span>
+      >{{ error ? '采集失败' : !hasData ? '暂无数据' : stale ? '数据延迟' : '已更新' }}</span>
     </div>
     <div class="metric-selection">
       <slot />
@@ -35,7 +35,7 @@
       v-if="!hasData || error"
       class="metric-empty"
     >
-      {{ error ? '此指标暂时查询失败，稍后刷新重试。' : loading ? '正在读取官方监控历史…' : '当前时段没有监控记录。' }}
+      {{ error ? '此指标暂时采集失败，已有历史样本保留。' : loading ? '正在读取本机监控历史…' : '当前时段没有监控记录，等待采样积累。' }}
     </p>
     <p class="metric-footnote">
       {{ hasData ? `最新样本 ${latestTime}` : '缺失数据保留为空' }} · {{ periodLabel }}平均值
@@ -60,6 +60,7 @@ const props = defineProps({
   series: { type: Array, default: () => [] },
   unit: { type: String, default: '%' },
   period: { type: Number, default: 60 },
+  freshnessSeconds: { type: Number, default: undefined },
   start: { type: Number, default: undefined },
   end: { type: Number, default: undefined },
   color: { type: String, default: '#3b82f6' },
@@ -68,7 +69,7 @@ const props = defineProps({
 })
 const element = ref(null)
 const palette = computed(() => [props.color, '#a78bfa'])
-const summaries = computed(() => props.series.map(series => ({ name: series.name, ...metricSummary(series.points, props.period) })))
+const summaries = computed(() => props.series.map(series => ({ name: series.name, ...metricSummary(series.points, props.period, Date.now(), props.freshnessSeconds) })))
 const hasData = computed(() => summaries.value.some(item => item.latest !== null))
 const stale = computed(() => summaries.value.some(item => item.stale))
 const latestTime = computed(() => new Date(Math.max(...summaries.value.map(item => item.time || 0))).toLocaleTimeString())
@@ -117,7 +118,8 @@ function render () {
       name: series.name,
       type: 'line',
       data: withGaps(series.points, props.period),
-      showSymbol: false,
+      showSymbol: series.points.length === 1,
+      symbolSize: 5,
       connectNulls: false,
       lineStyle: { width: 2.5 },
       areaStyle: props.series.length === 1 ? { opacity: 0.09 } : undefined,

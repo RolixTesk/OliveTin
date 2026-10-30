@@ -36,6 +36,7 @@ type monitor struct {
 func NewHandler(cfg *config.Config) http.Handler {
 	m := &monitor{cfg: cfg, sample: sample{Data: json.RawMessage(`{"services":[]}`)}}
 	go m.poll(context.Background())
+	go m.pollSystem(context.Background())
 	return m
 }
 

@@ -11,12 +11,12 @@
     </div>
     <div class="system-toolbar">
       <div>
-        <span class="system-source"><i />阿里云云监控</span><p>{{ sourceInfo }}</p>
+        <span class="system-source"><i />本机系统监控</span><p>{{ sourceInfo }}</p>
         <p
           class="system-update"
           aria-live="polite"
         >
-          {{ loading ? '正在读取官方监控历史…' : `每分钟更新 · ${collectedAt ? `查询于 ${new Date(collectedAt).toLocaleString()}` : '等待首次查询'}` }}
+          {{ loading ? '正在读取本机监控历史…' : `每 10 秒更新 · ${collectedAt ? `查询于 ${new Date(collectedAt).toLocaleString()}` : '等待首次采样'}` }}
         </p>
       </div>
       <div class="system-controls">
@@ -61,7 +61,7 @@
         id="cpu"
         title="CPU 使用率"
         kicker="01 / COMPUTE"
-        subtitle="处理器的忙碌程度"
+        subtitle="总使用率，包含 I/O 等待"
         :series="selectedSeries(metrics.cpu, undefined, 'CPU')"
         :error="!!metrics.cpu?.error"
       />
@@ -143,7 +143,7 @@
       </MetricChart>
     </div>
     <p class="system-caption">
-      曲线来自已有云监控记录。空白表示没有样本，采样峰值为当前区间各统计周期平均值中的最大值。
+      {{ historyNote }} 空白表示没有样本，采样峰值为当前区间各统计周期平均值中的最大值。
     </p>
   </div>
 </template>
@@ -167,8 +167,11 @@ const network = ref('eth0')
 const metrics = computed(() => data.value?.metrics || {})
 const disks = computed(() => deviceChoices(metrics.value.disk))
 const networks = computed(() => deviceChoices(metrics.value.networkIn))
-const sourceInfo = computed(() => data.value ? `${data.value.region} · ECS · ${data.value.period / 60} 分钟采样` : '读取现有 Agent 的历史记录')
-const chartProps = computed(() => ({ loading: loading.value, period: data.value?.period || 60, start: data.value?.startTime, end: data.value?.endTime }))
+const sourceInfo = computed(() => data.value ? `Linux · 每 ${data.value.sampleInterval} 秒采集 · ${data.value.period / 60} 分钟聚合` : '读取本机操作系统指标')
+const historyNote = computed(() => data.value?.historyStart
+  ? `${data.value.warning === 'warming-up' ? 'CPU 和网络正在等待相邻采样，约需 10 秒。' : ''}本机历史从 ${new Date(data.value.historyStart).toLocaleString()} 开始积累，最多保留 24 小时。`
+  : '等待本机首次采样，CPU 和网络约需 10 秒预热；此前的历史时段留空。')
+const chartProps = computed(() => ({ loading: loading.value, period: data.value?.period || 60, start: data.value?.startTime, end: data.value?.endTime, freshnessSeconds: 30 }))
 let timer, controller
 
 async function refresh () {
@@ -185,16 +188,17 @@ async function refresh () {
       await router.push('/login')
       return
     }
-    if (!response.ok) throw new Error('CloudMonitor unavailable')
+    if (!response.ok) throw new Error('System monitoring unavailable')
     const result = await response.json()
     if (current !== controller) return
     data.value = result.data
     collectedAt.value = result.collectedAt
-    if (result.error) error.value = '云监控暂时查询失败，当前显示上次成功记录。'
+    if (result.error) error.value = '本机监控历史暂时读取失败，当前显示上次成功记录。'
+    else if (result.data.warning === 'sampling-delayed') error.value = '本机采样已延迟，当前保留历史曲线，请检查采集器。'
     if (!disks.value.some(item => item.value === disk.value)) disk.value = metrics.value.disk?.series.find(item => item.name === '/')?.device || disks.value[0]?.value || ''
     if (!networks.value.some(item => item.value === network.value)) network.value = networks.value.find(item => item.value === 'eth0')?.value || networks.value[0]?.value || ''
   } catch (failure) {
-    if (failure.name !== 'AbortError' && current === controller) error.value = '暂时无法读取阿里云监控，请稍后刷新。已有曲线保留，更新时间不变。'
+    if (failure.name !== 'AbortError' && current === controller) error.value = '暂时无法读取本机监控，请稍后刷新。已有曲线保留，更新时间不变。'
   } finally {
     if (current === controller) loading.value = false
   }
@@ -210,7 +214,7 @@ function changeRange (value) {
 
 onMounted(() => {
   refresh()
-  timer = setInterval(() => { if (!document.hidden && !loading.value) refresh() }, 60000)
+  timer = setInterval(() => { if (!document.hidden && !loading.value) refresh() }, 10000)
 })
 onBeforeUnmount(() => {
   clearInterval(timer)

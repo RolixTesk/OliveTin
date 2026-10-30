@@ -3,6 +3,8 @@ package servicemonitor
 import (
 	"context"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +43,32 @@ func TestSystemCache(t *testing.T) {
 	m.cfg.ServiceMonitor.Command = []string{"sh", "-c", "exit 1"}
 	second := m.systemHistory(context.Background(), "1h")
 	if second.Error != "" || first.CollectedAt != second.CollectedAt {
-		t.Fatal("repeated visits must share the successful one-minute cache")
+		t.Fatal("repeated visits must share the successful ten-second cache")
+	}
+}
+
+func TestLocalHistoryCacheExpiresAfterTenSeconds(t *testing.T) {
+	m := testMonitor()
+	m.cfg.ServiceMonitor.Command = []string{"sh", "-c", `printf '%s' '{"metrics":{}}'`}
+	first := m.systemHistory(context.Background(), "1h")
+	m.system["1h"] = systemSample{sample: first, AttemptedAt: time.Now().Add(-11 * time.Second)}
+	m.cfg.ServiceMonitor.Command = []string{"sh", "-c", "exit 1"}
+	if m.systemHistory(context.Background(), "1h").Error == "" {
+		t.Fatal("the old minute cache must not mask fresh local sampling failures")
+	}
+}
+
+func TestLocalSamplingUsesOnlyTheFixedOperation(t *testing.T) {
+	m := testMonitor()
+	marker := filepath.Join(t.TempDir(), "operation")
+	m.cfg.ServiceMonitor.Command = []string{"sh", "-c", `printf '%s' "$2" > "$1"`, "fixture", marker}
+	m.sampleSystem(context.Background())
+	data, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "sample-system" {
+		t.Fatal("background collection must use the fixed local sampler")
 	}
 }
 

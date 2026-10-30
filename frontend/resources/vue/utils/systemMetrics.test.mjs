@@ -2,6 +2,15 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { deviceChoices, formatMetric, metricSummary, selectedSeries, withGaps } from './systemMetrics.js'
 
+test('local sample freshness is independent of the selected history aggregation', () => {
+  assert.equal(metricSummary([[180000, 20]], 900, 220000, 30).stale, true)
+  assert.equal(metricSummary([[180000, 20]], 900, 200000, 30).stale, false)
+})
+
+test('an empty aggregation bucket remains a gap with real source timestamps', () => {
+  assert.deepEqual(withGaps([[59000, 4], [120000, 8]], 60), [[59000, 4], [60000, null], [120000, 8]])
+})
+
 test('missing metrics stay empty and gaps never become zero or connected lines', () => {
   assert.equal(metricSummary([]).latest, null)
   assert.equal(formatMetric(null), '—')

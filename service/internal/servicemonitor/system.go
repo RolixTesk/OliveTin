@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"slices"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type systemSample struct {
@@ -34,7 +36,7 @@ func (m *monitor) serveSystem(w http.ResponseWriter, r *http.Request) {
 	}
 	result := m.systemHistory(r.Context(), window)
 	if result.Data == nil {
-		http.Error(w, "Cloud monitoring unavailable", http.StatusBadGateway)
+		http.Error(w, "System monitoring unavailable", http.StatusBadGateway)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -42,14 +44,14 @@ func (m *monitor) serveSystem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *monitor) systemHistory(ctx context.Context, window string) sample {
-	// Three fixed windows share a one-minute cache; concurrent visits cannot multiply cloud requests.
+	// History reads share the sampler's ten-second cadence without triggering collection.
 	m.systemMutex.Lock()
 	defer m.systemMutex.Unlock()
 	if m.system == nil {
 		m.system = make(map[string]systemSample)
 	}
 	cached := m.system[window]
-	if time.Since(cached.AttemptedAt) < time.Minute {
+	if time.Since(cached.AttemptedAt) < 10*time.Second {
 		return cached.sample
 	}
 	m.system[window] = m.collectSystem(ctx, window, cached)
@@ -63,8 +65,28 @@ func (m *monitor) collectSystem(ctx context.Context, window string, previous sys
 		err = errors.New("invalid system history")
 	}
 	if err != nil {
-		previous.Error = "Cloud monitoring query failed; displayed data may be stale."
+		previous.Error = "System monitoring read failed; displayed data may be stale."
 		return previous
 	}
 	return systemSample{AttemptedAt: previous.AttemptedAt, sample: sample{Data: data, CollectedAt: time.Now().UTC()}}
+}
+
+func (m *monitor) sampleSystem(ctx context.Context) {
+	if _, err := m.run(ctx, "sample-system"); err != nil {
+		log.Warn("Local system monitoring sample failed; inspect the fixed collector through SSH")
+	}
+}
+
+func (m *monitor) pollSystem(ctx context.Context) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	m.sampleSystem(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.sampleSystem(ctx)
+		}
+	}
 }

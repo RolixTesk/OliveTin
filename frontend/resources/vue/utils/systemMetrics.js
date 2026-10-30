@@ -7,7 +7,7 @@ export function formatMetric (value, unit = '%') {
   return `${value.toFixed(unit === '%' ? 1 : 2)}${unit}`
 }
 
-export function metricSummary (points = [], period = 60, now = Date.now()) {
+export function metricSummary (points = [], period = 60, now = Date.now(), freshnessSeconds) {
   const values = points.filter(([time, value]) => Number.isFinite(time) && Number.isFinite(value))
   if (!values.length) return { latest: null, average: null, peak: null, stale: true }
   const last = values.at(-1)
@@ -16,15 +16,16 @@ export function metricSummary (points = [], period = 60, now = Date.now()) {
     time: last[0],
     average: values.reduce((total, point) => total + point[1], 0) / values.length,
     peak: Math.max(...values.map(point => point[1])),
-    stale: now - last[0] > Math.max(180, period * 3) * 1000
+    stale: now - last[0] > (freshnessSeconds ?? Math.max(180, period * 3)) * 1000
   }
 }
 
 export function withGaps (points = [], period = 60) {
   const result = []
+  const bucket = time => Math.floor(time / (period * 1000))
   for (const point of points) {
     const previous = result.at(-1)
-    if (previous && point[0] - previous[0] > period * 1500) result.push([previous[0] + period * 1000, null])
+    if (previous && bucket(point[0]) - bucket(previous[0]) > 1) result.push([(bucket(previous[0]) + 1) * period * 1000, null])
     result.push(point)
   }
   return result
